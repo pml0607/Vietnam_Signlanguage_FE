@@ -2,3 +2,6 @@
 vietnamsignlanguage/
 Pytorch/preprocessed_clips/
 Pytorch/runs/
+heat_map_data/
+*.ipynb
+a.py
