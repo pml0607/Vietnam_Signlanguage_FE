@@ -38,7 +38,7 @@ def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size
 
     clip_idx_global = 0
     for row in tqdm(df.itertuples(), total=len(df), desc=f"[{split_name}] Đang xử lý video"):
-        video_path = row.video_path
+        video_path = row.skeleton_path
         label = int(row.label)
         video_id = get_video_id(video_path)
 
@@ -67,12 +67,12 @@ def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size
             print(f"⚠️ Lỗi xử lý {video_path}: {e}")
 
 if __name__ == "__main__":
-    output_root = "preprocessed_clips"
+    output_root = "preprocessed_clips_v2"
     os.makedirs(output_root, exist_ok=True)
 
     configs = [
-        ("../cnn_train_1.corpus.csv", "train"),
-        ("../cnn_val_1.corpus.csv", "val")
+        ("../heat_map_data_(no_hand)/train/skeleton_paths.csv", "train"),
+        ("../heat_map_data_(no_hand)/val/skeleton_paths.csv", "val")
     ]
 
     for csv_file, split in configs:

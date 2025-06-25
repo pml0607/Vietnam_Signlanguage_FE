@@ -11,21 +11,7 @@ import numpy as np
 from tqdm import tqdm
 from dataset import PreprocessedClipDataset
 from model import build_s3d_model
-
-def clip_collate_fn(batch):
-    """
-    batch: list of samples, mỗi sample là tuple (clip, label, video_id, clip_idx)
-    Returns:
-        clips: (B, 3, 64, 224, 224)
-        labels: (B,)
-        video_ids: list[str]
-        clip_idxs: list[int]
-    """
-    clips = torch.stack([item[0] for item in batch], dim=0)
-    labels = torch.tensor([item[1] for item in batch], dtype=torch.long)
-    video_ids = [item[2] for item in batch]
-    clip_idxs = [item[3] for item in batch]
-    return clips, labels, video_ids, clip_idxs
+from train_utils import clip_collate_fn
 
 # Config
 train_dir = "preprocessed_clips/train"
@@ -33,7 +19,7 @@ val_dir = "preprocessed_clips/val"
 batch_size = 4
 epochs = 50
 lr = 1e-4
-log_dir = "runs/s3d_experiment1"
+log_dir = "runs/s3d_experiment_v2"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Datasets & Dataloaders
