@@ -1,0 +1,4 @@
+*.zip
+vietnamsignlanguage/
+Pytorch/preprocessed_clips/
+Pytorch/runs/
