@@ -14,13 +14,13 @@ from model import build_s3d_model
 from train_utils import clip_collate_fn
 
 # Config
-train_dir = "preprocessed_clips/train"
-val_dir = "preprocessed_clips/val"
+train_dir = "preprocessed_clips_v2/train"
+val_dir = "preprocessed_clips_v2/val"
 batch_size = 4
 epochs = 50
 lr = 1e-4
 log_dir = "runs/s3d_experiment_v2"
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Datasets & Dataloaders
 train_dataset = PreprocessedClipDataset(train_dir)
@@ -30,7 +30,9 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, nu
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=clip_collate_fn)
 
 # Model
-model = build_s3d_model(num_classes=15, pretrained=True, freeze_until_layer=12).to(device)
+model = build_s3d_model(num_classes=15, pretrained=True, freeze_until_layer=12)
+# import pdb;pdb.set_trace()
+model.to(device)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -122,7 +124,7 @@ for epoch in range(1, epochs + 1):
     # Save best model
     if val_acc > best_val_acc:
         best_val_acc = val_acc
-        torch.save(model.state_dict(), "best_s3d_model.pt")
+        torch.save(model.state_dict(), "best_s3d_model_v2.pt")
         print("Saved best model!")
 
 writer.close()

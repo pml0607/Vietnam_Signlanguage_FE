@@ -91,8 +91,8 @@ def visualize_on_video(video_path, npy_path, label, output_path,
         # Vẽ pose và tay
         draw_pose_lines(frame, keypoints_pixel, color=POSE_COLOR)
         draw_hand_pose_lines(frame, keypoints_pixel, color=POSE_HAND_COLOR)
-        draw_hand_lines(frame, keypoints_pixel, offset=33)  # left
-        draw_hand_lines(frame, keypoints_pixel, offset=54)  # right
+        # draw_hand_lines(frame, keypoints_pixel, offset=33)  # left
+        # draw_hand_lines(frame, keypoints_pixel, offset=54)  # right
 
         # Ghi nhãn
         cv2.putText(frame, f'Label: {label}', (20, 40),
@@ -105,25 +105,50 @@ def visualize_on_video(video_path, npy_path, label, output_path,
     print(f"✅ Đã lưu video nền đen có skeleton: {output_path}")
     
 def process_csv(csv_path, output_dir='output'):
-    #hien thi so luong video trong csv
-    print(f"📂 Đang xử lý file CSV: {csv_path}"
-          f"\n📂 Tổng số video: {sum(1 for _ in open(csv_path)) - 1}")  # trừ header
+    # #hien thi so luong video trong csv
+    # print(f"📂 Đang xử lý file CSV: {csv_path}"
+    #       f"\n📂 Tổng số video: {sum(1 for _ in open(csv_path)) - 1}")  # trừ header
+    # with open(csv_path, newline='') as f:
+    #     reader = csv.DictReader(f)
+    #     for row in tqdm(reader, desc="Đang xử lý batch"):
+    #         video_path = row['video_path']
+    #         npy_path = row['file_path']
+    #         label = row['label']
+
+    #         # Đặt tên file output theo tên file video
+    #         video_name = os.path.splitext(os.path.basename(video_path))[0]
+    #         out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
+
+    #         try:
+    #             visualize_on_video(video_path, npy_path, label, out_path)
+    #         except Exception as e:
+    #             print(f"❌ Lỗi khi xử lý {video_path}: {e}")
+    
+    # tao csv chứa đường dẫn video file skeleton và nhãn
     with open(csv_path, newline='') as f:
         reader = csv.DictReader(f)
-        for row in tqdm(reader, desc="Đang xử lý batch"):
-            video_path = row['video_path']
-            npy_path = row['file_path']
-            label = row['label']
+        output_csv_path = os.path.join(output_dir, 'skeleton_paths.csv')
+        with open(output_csv_path, 'w', newline='') as out_f:
+            writer = csv.writer(out_f)
+            # Ghi tiêu đề cột
+            writer.writerow(['video_path', 'skeleton_path', 'label'])
+            for row in tqdm(reader, desc="Đang xử lý batch"):
+                video_path = row['video_path']
+                npy_path = row['file_path']
+                label = row['label']
 
-            # Đặt tên file output theo tên file video
-            video_name = os.path.splitext(os.path.basename(video_path))[0]
-            out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
+                # Đặt tên file output theo tên file video
+                video_name = os.path.splitext(os.path.basename(video_path))[0]
+                out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
 
-            try:
-                visualize_on_video(video_path, npy_path, label, out_path)
-            except Exception as e:
-                print(f"❌ Lỗi khi xử lý {video_path}: {e}")
+                try:
+                    # visualize_on_video(video_path, npy_path, label, out_path)
+                    writer.writerow([video_path, out_path, label])
+                except Exception as e:
+                    print(f"❌ Lỗi khi xử lý {video_path}: {e}")
+            
+
 
 if __name__ == "__main__":
     csv_path = '../cnn_val_1.corpus.csv' 
-    process_csv(csv_path, output_dir='../heat_map_data/val')
+    process_csv(csv_path, output_dir='/home/21013187/Vietnam_Signlanguage_FE/heat_map_data_(no_hand)/val')

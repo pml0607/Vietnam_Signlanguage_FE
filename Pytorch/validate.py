@@ -14,7 +14,7 @@ val_dir = "preprocessed_clips/val"
 batch_size = 4
 num_classes = 15
 model_path = "best_s3d_model.pt"
-cm_output_path = "confusion_matrix.png"
+cm_output_path = "confusion_matrix_v2.png"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Dataset & Dataloader

@@ -1,7 +1,8 @@
 *.zip
 vietnamsignlanguage/
 Pytorch/preprocessed_clips/
+Pytorch/preprocessed_clips_v2/
 Pytorch/runs/
 heat_map_data/
-*.ipynb
+heat_map_data_(no_hand)/
 a.py
