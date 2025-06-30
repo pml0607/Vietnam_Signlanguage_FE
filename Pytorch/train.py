@@ -14,13 +14,13 @@ from model import build_s3d_model
 from train_utils import clip_collate_fn
 
 # Config
-train_dir = "preprocessed_clips_v2/train"
-val_dir = "preprocessed_clips_v2/val"
+train_dir = "preprocessed_clips_6ch_v2/train"
+val_dir = "preprocessed_clips_6ch_v2/val"
 batch_size = 4
-epochs = 50
+epochs = 10
 lr = 1e-4
-log_dir = "runs/s3d_experiment_v2"
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+log_dir = "runs/s3d_experiment_v4"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Datasets & Dataloaders
 train_dataset = PreprocessedClipDataset(train_dir)
@@ -124,7 +124,7 @@ for epoch in range(1, epochs + 1):
     # Save best model
     if val_acc > best_val_acc:
         best_val_acc = val_acc
-        torch.save(model.state_dict(), "best_s3d_model_v2.pt")
+        torch.save(model.state_dict(), "best_s3d_model_6ch_v2.pt")
         print("Saved best model!")
 
 writer.close()

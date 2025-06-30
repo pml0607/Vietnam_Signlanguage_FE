@@ -10,11 +10,11 @@ import seaborn as sns
 import os
 
 # Config
-val_dir = "preprocessed_clips/val"
+val_dir = "preprocessed_clips_6ch_v2/val"
 batch_size = 4
 num_classes = 15
-model_path = "best_s3d_model.pt"
-cm_output_path = "confusion_matrix_v2.png"
+model_path = "best_s3d_model_6ch_v2.pt"
+cm_output_path = "confusion_matrix_v4.png"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Dataset & Dataloader
