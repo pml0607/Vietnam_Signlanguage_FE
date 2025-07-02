@@ -21,3 +21,4 @@ Data_list/*.csv
 Lite-HRNet/
 a.py
 b.py
+__pycache__/
