@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from sklearn.metrics import confusion_matrix
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
@@ -12,22 +12,23 @@ from tqdm import tqdm
 from dataset import PreprocessedClipDataset
 from model import build_s3d_model
 from train_utils import clip_collate_fn
+from dataset import SingleStreamAugmentation, DualStreamAugmentation
 
 # Config
-train_dir = "preprocessed_clips_6ch_v2/train"
-val_dir = "preprocessed_clips_6ch_v2/val"
+train_dir = "preprocessed_segmented_clips/train"
+val_dir = "preprocessed_segmented_clips/val"
 batch_size = 4
 epochs = 10
 lr = 1e-4
-log_dir = "runs/s3d_experiment_v4"
+log_dir = "runs/s3d_experiment_segmented"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+transform = SingleStreamAugmentation()
 # Datasets & Dataloaders
-train_dataset = PreprocessedClipDataset(train_dir)
+train_dataset = PreprocessedClipDataset(train_dir, transform)
 val_dataset = PreprocessedClipDataset(val_dir)
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=clip_collate_fn)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=clip_collate_fn)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1, collate_fn=clip_collate_fn)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1, collate_fn=clip_collate_fn)
 
 # Model
 model = build_s3d_model(num_classes=15, pretrained=True, freeze_until_layer=12)
@@ -36,7 +37,7 @@ model.to(device)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=lr)
-
+# scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.5, verbose=True)
 # TensorBoard
 writer = SummaryWriter(log_dir=log_dir)
 
@@ -84,18 +85,7 @@ def validate(model, loader, criterion, epoch=None):
             all_labels.extend(labels.cpu().numpy())
 
     acc = correct / total
-
-    # Confusion matrix
-    if epoch is not None:
-        cm = confusion_matrix(all_labels, all_preds, labels=list(range(15)))
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=range(15), yticklabels=range(15))
-        ax.set_xlabel('Predicted')
-        ax.set_ylabel('True')
-        ax.set_title(f'Confusion Matrix - Epoch {epoch}')
-        writer.add_figure('Confusion_Matrix', fig, global_step=epoch)
-        plt.close(fig)
-
+    
     return running_loss / total, acc
 
 # Main training
@@ -120,11 +110,11 @@ for epoch in range(1, epochs + 1):
         'Val': val_acc
     }, epoch)
 
-
+    # scheduler.step(val_loss)
     # Save best model
     if val_acc > best_val_acc:
         best_val_acc = val_acc
-        torch.save(model.state_dict(), "best_s3d_model_6ch_v2.pt")
+        torch.save(model.state_dict(), "best_s3d_model_segmented.pt")
         print("Saved best model!")
 
 writer.close()

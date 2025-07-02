@@ -114,7 +114,7 @@ class S3D(nn.Module):
             norm_layer = partial(nn.BatchNorm3d, eps=0.001, momentum=0.001)
 
         self.features = nn.Sequential(
-            TemporalSeparableConv(6, 64, 7, 2, 3, norm_layer),
+            TemporalSeparableConv(3, 64, 7, 2, 3, norm_layer),
             nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1)),
             Conv3dNormActivation(
                 64,
@@ -213,15 +213,17 @@ def s3d_linh(*, weights: Optional[S3D_Weights] = None, progress: bool = True, **
 
     model = S3D(**kwargs)
 
-    if weights is not None:
-        state_dict = weights.get_state_dict(progress=progress)
-        conv1_key = "features.0.0.0.weight"
-        pretrained_conv1 = state_dict[conv1_key]  # shape [64, 3, 1, 7, 7]
-        model_conv1 = model.features[0][0][0].weight  # shape [64, 6, 1, 7, 7]
+    # if weights is not None:
+    #     state_dict = weights.get_state_dict(progress=progress)
+    #     conv1_key = "features.0.0.0.weight"
+    #     pretrained_conv1 = state_dict[conv1_key]  # shape [64, 3, 1, 7, 7]
+    #     model_conv1 = model.features[0][0][0].weight  # shape [64, 6, 1, 7, 7]
         
-        if model_conv1.shape != pretrained_conv1.shape:
-            repeated = pretrained_conv1.repeat(1, 2, 1, 1, 1) / 2
-            state_dict[conv1_key] = repeated
-        model.load_state_dict(state_dict, strict=False)
+    #     if model_conv1.shape != pretrained_conv1.shape:
+    #         repeated = pretrained_conv1.repeat(1, 2, 1, 1, 1) / 2
+    #         state_dict[conv1_key] = repeated
+    #     model.load_state_dict(state_dict, strict=False)
+    if weights is not None:
+        model.load_state_dict(weights.get_state_dict(progress=progress))
 
     return model

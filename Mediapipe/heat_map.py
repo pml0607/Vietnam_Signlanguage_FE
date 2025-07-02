@@ -65,7 +65,6 @@ def visualize_on_video(video_path, npy_path, label, output_path,
                        font_scale=1.0, font_color=(0, 0, 255)):
     keypoints_seq = np.load(npy_path)  # (T, 75, 3)
 
-    # Lấy thông số video gốc
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise IOError(f"Không mở được video: {video_path}")
@@ -73,7 +72,7 @@ def visualize_on_video(video_path, npy_path, label, output_path,
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()  # không dùng frame nữa
+    cap.release()
 
     T = min(len(keypoints_seq), frame_count)
 
@@ -81,48 +80,40 @@ def visualize_on_video(video_path, npy_path, label, output_path,
     out_writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
 
     for t in range(T):
-        # Tạo nền đen
         frame = np.zeros((h, w, 3), dtype=np.uint8)
 
         keypoints = keypoints_seq[t]  # (75, 3)
         keypoints_xy = keypoints[:, :2]
         keypoints_pixel = np.round(keypoints_xy * [w, h]).astype(int)
 
-        # Vẽ pose và tay
         draw_pose_lines(frame, keypoints_pixel, color=POSE_COLOR)
         draw_hand_pose_lines(frame, keypoints_pixel, color=POSE_HAND_COLOR)
-        # draw_hand_lines(frame, keypoints_pixel, offset=33)  # left
-        # draw_hand_lines(frame, keypoints_pixel, offset=54)  # right
-
-        # Ghi nhãn
-        cv2.putText(frame, f'Label: {label}', (20, 40),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=font_scale, color=font_color, thickness=2)
-
+        draw_hand_lines(frame, keypoints_pixel, offset=33)  # left
+        draw_hand_lines(frame, keypoints_pixel, offset=54)  # right
         out_writer.write(frame)
 
     out_writer.release()
-    print(f"✅ Đã lưu video nền đen có skeleton: {output_path}")
+    print(f"Saved skeleton video: {output_path}")
     
 def process_csv(csv_path, output_dir='output'):
-    # #hien thi so luong video trong csv
-    # print(f"📂 Đang xử lý file CSV: {csv_path}"
-    #       f"\n📂 Tổng số video: {sum(1 for _ in open(csv_path)) - 1}")  # trừ header
-    # with open(csv_path, newline='') as f:
-    #     reader = csv.DictReader(f)
-    #     for row in tqdm(reader, desc="Đang xử lý batch"):
-    #         video_path = row['video_path']
-    #         npy_path = row['file_path']
-    #         label = row['label']
+    #hien thi so luong video trong csv
+    print(f"📂 Đang xử lý file CSV: {csv_path}"
+          f"\n📂 Tổng số video: {sum(1 for _ in open(csv_path)) - 1}")  # trừ header
+    with open(csv_path, newline='') as f:
+        reader = csv.DictReader(f)
+        for row in tqdm(reader, desc="Đang xử lý batch"):
+            video_path = row['video_path']
+            npy_path = row['file_path']
+            label = row['label']
 
-    #         # Đặt tên file output theo tên file video
-    #         video_name = os.path.splitext(os.path.basename(video_path))[0]
-    #         out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
+            # Đặt tên file output theo tên file video
+            video_name = os.path.splitext(os.path.basename(video_path))[0]
+            out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
 
-    #         try:
-    #             visualize_on_video(video_path, npy_path, label, out_path)
-    #         except Exception as e:
-    #             print(f"❌ Lỗi khi xử lý {video_path}: {e}")
+            try:
+                visualize_on_video(video_path, npy_path, label, out_path)
+            except Exception as e:
+                print(f"Lỗi khi xử lý {video_path}: {e}")
     
     # tao csv chứa đường dẫn video file skeleton và nhãn
     with open(csv_path, newline='') as f:
@@ -151,4 +142,4 @@ def process_csv(csv_path, output_dir='output'):
 
 if __name__ == "__main__":
     csv_path = '../cnn_val_1.corpus.csv' 
-    process_csv(csv_path, output_dir='/home/21013187/Vietnam_Signlanguage_FE/heat_map_data_(no_hand)/val')
+    process_csv(csv_path, output_dir='/home/21013187/Vietnam_Signlanguage_FE/heat_map_data/val')
