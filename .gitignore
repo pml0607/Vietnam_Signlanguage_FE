@@ -15,10 +15,8 @@ person_with_backgrounds/
 heat_map_data/
 heat_map_data_(no_hand)/
 heat_map_data_(no_hand)_v2/
-Ultralytics/
 Weight/*.pt
 Data_list/*.csv
 Lite-HRNet/
 a.py
 b.py
-__pycache__/
