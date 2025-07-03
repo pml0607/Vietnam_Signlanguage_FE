@@ -1,0 +1,8 @@
+input:
+  train_csv_path: "../Data_list/cnn_train_1.corpus.csv"
+  val_csv_path: "../Data_list/cnn_val_1.corpus.csv"
+
+output:
+  train_dir: "../heat_map_data/train"
+  val_dir: "../heat_map_data/val"
+

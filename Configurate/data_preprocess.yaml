@@ -1,0 +1,12 @@
+output_root: "preprocessed_segmented_clips"
+
+video:
+  num_frames: 64
+  stride: 32
+  size: [224, 224]   # width x height
+
+splits:
+  train:
+    csv_path: "../cnn_train_1_segmented.corpus.csv"
+  val:
+    csv_path: "../cnn_val_1_segmented.corpus.csv"
