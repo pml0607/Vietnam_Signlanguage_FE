@@ -3,8 +3,15 @@ import numpy as np
 import os
 import csv
 from tqdm import tqdm
+import yaml
 
-# === Color Map ===
+def load_config(config_path):
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    return config
+
+config = load_config('../Configurate/landmark_config.yaml')
+# Color Map
 POSE_COLOR = (255, 200, 255)
 POSE_HAND_COLOR = (225,178,51)
 FINGER_COLORS = {
@@ -16,7 +23,7 @@ FINGER_COLORS = {
     'sen':    (255, 200, 255)  # Coral
 }
 
-# === Connections ===
+# Connections
 POSE_CONNECTIONS = [
     (0,1),(1,2),(2,3),(3,7),(0,4),(4,5),(5,6),(6,8),
     (9,10),(11,12),(11,23),(12,24),(23,24),(23,25),
@@ -61,13 +68,12 @@ def draw_hand_lines(image, keypoints_pixel, offset):
                 cv2.line(image, pt1, pt2, color=FINGER_COLORS[finger], thickness=2, lineType=cv2.LINE_AA)
     return image
 
-def visualize_on_video(video_path, npy_path, label, output_path,
-                       font_scale=1.0, font_color=(0, 0, 255)):
+def visualize_on_video(video_path, npy_path, output_path):
     keypoints_seq = np.load(npy_path)  # (T, 75, 3)
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        raise IOError(f"Không mở được video: {video_path}")
+        raise IOError(f"Couldn't open video: {video_path}")
     fps = cap.get(cv2.CAP_PROP_FPS)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -96,50 +102,48 @@ def visualize_on_video(video_path, npy_path, label, output_path,
     print(f"Saved skeleton video: {output_path}")
     
 def process_csv(csv_path, output_dir='output'):
-    #hien thi so luong video trong csv
-    print(f"📂 Đang xử lý file CSV: {csv_path}"
-          f"\n📂 Tổng số video: {sum(1 for _ in open(csv_path)) - 1}")  # trừ header
+    print(f"Processing csv file: {csv_path}"
+          f"\nNumber of videos: {sum(1 for _ in open(csv_path)) - 1}") 
     with open(csv_path, newline='') as f:
         reader = csv.DictReader(f)
-        for row in tqdm(reader, desc="Đang xử lý batch"):
+        for row in tqdm(reader, desc="Processing batch"):
             video_path = row['video_path']
             npy_path = row['file_path']
             label = row['label']
 
-            # Đặt tên file output theo tên file video
             video_name = os.path.splitext(os.path.basename(video_path))[0]
             out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
 
             try:
                 visualize_on_video(video_path, npy_path, label, out_path)
             except Exception as e:
-                print(f"Lỗi khi xử lý {video_path}: {e}")
+                print(f"Error in processing {video_path}: {e}")
     
-    # tao csv chứa đường dẫn video file skeleton và nhãn
     with open(csv_path, newline='') as f:
         reader = csv.DictReader(f)
         output_csv_path = os.path.join(output_dir, 'skeleton_paths.csv')
         with open(output_csv_path, 'w', newline='') as out_f:
             writer = csv.writer(out_f)
-            # Ghi tiêu đề cột
             writer.writerow(['video_path', 'skeleton_path', 'label'])
-            for row in tqdm(reader, desc="Đang xử lý batch"):
+            for row in tqdm(reader, desc="Processing CSV for output"):
                 video_path = row['video_path']
                 npy_path = row['file_path']
                 label = row['label']
 
-                # Đặt tên file output theo tên file video
                 video_name = os.path.splitext(os.path.basename(video_path))[0]
                 out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
 
                 try:
-                    # visualize_on_video(video_path, npy_path, label, out_path)
                     writer.writerow([video_path, out_path, label])
                 except Exception as e:
-                    print(f"❌ Lỗi khi xử lý {video_path}: {e}")
+                    print(f"Error in processing {video_path}: {e}")
             
 
 
 if __name__ == "__main__":
-    csv_path = '../cnn_val_1.corpus.csv' 
-    process_csv(csv_path, output_dir='/home/21013187/Vietnam_Signlanguage_FE/heat_map_data/val')
+    train_csv_path = config['input']['train_csv_path']
+    val_csv_path = config['input']['val_csv_path']
+    train_output_dir = config['output']['train_dir']
+    val_output_dir = config['output']['val_dir']
+    process_csv(train_csv_path, output_dir=train_output_dir)
+    process_csv(val_csv_path, output_dir=val_output_dir)

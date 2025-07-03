@@ -7,23 +7,28 @@ from torchvision.transforms.functional import resize
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import random
+import yaml
 
-# === CẤU HÌNH ===
+# === Load config ===
+with open("config_blending.yaml", "r") as f:
+    cfg = yaml.safe_load(f)
+
+bitwised_root = cfg["paths"]["bitwised_root"]
+mask_root = cfg["paths"]["mask_root"]
+background_folder = cfg["paths"]["background_folder"]
+output_root = cfg["paths"]["output_root"]
+target_size = (640, 640) # Resize target for output videos
+# Configure
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Đang sử dụng thiết bị: {device}")
+print(f"Using device: {device}")
 
-bitwised_root = "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2/bitwised"
-mask_root = "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2/mask"
-background_folder = "/home/21013187/Vietnam_Signlanguage_FE/Unsplash_Images"
-output_root = "/home/21013187/Vietnam_Signlanguage_FE/person_with_backgrounds"
-target_size = (640, 640)
 
-# === ĐỌC BACKGROUND MỘT LẦN VÀ ĐƯA LÊN GPU ===
+# Load backgrounds
 bg_paths = glob(os.path.join(background_folder, "**", "*.jpg"), recursive=True)
 backgrounds = [cv2.resize(cv2.imread(p), target_size) for p in bg_paths]
 backgrounds_tensor = [torch.from_numpy(cv2.cvtColor(bg, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).float().to(device) for bg in backgrounds]
 
-# === DANH SÁCH VIDEO ===
+# Video list
 video_paths = glob(os.path.join(bitwised_root, "*", "rgb", "*.avi"))
 
 def process_video_gpu(video_path, backgrounds_tensor):
@@ -31,7 +36,7 @@ def process_video_gpu(video_path, backgrounds_tensor):
     mask_path = os.path.join(mask_root, relative_path)
 
     if not os.path.exists(mask_path):
-        print(f"[SKIP] Không tìm thấy mask cho {relative_path}")
+        print(f"[SKIP] Do not have any mark on {relative_path}")
         return
 
     masked_cap = cv2.VideoCapture(video_path)
@@ -40,15 +45,14 @@ def process_video_gpu(video_path, backgrounds_tensor):
     fps = masked_cap.get(cv2.CAP_PROP_FPS)
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
 
-    # 🔀 Chọn ngẫu nhiên 1 background
+    # Chosing a random background
     bg_tensor = random.choice(backgrounds_tensor).clone()
     bg = bg_tensor
 
-    # Reset lại video
+    
     masked_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     mask_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-    # Tên folder mới: giữ nguyên path, không thêm bg{i}
     output_path = os.path.join(output_root, relative_path)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 

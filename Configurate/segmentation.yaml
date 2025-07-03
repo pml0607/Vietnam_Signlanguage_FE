@@ -1,0 +1,14 @@
+segmentation:
+  paths:
+    video_root: "/home/21013187/Vietnam_Signlanguage_FE/vietnamsignlanguage/mediapipe"
+    output_root: "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2"
+
+  model:
+    path: "/home/21013187/Vietnam_Signlanguage_FE/Ultralytics/yolo11l-seg.pt"
+
+add_bg:
+  paths:
+    bitwised_root: "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2/bitwised"
+    mask_root: "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2/mask"
+    background_folder: "/home/21013187/Vietnam_Signlanguage_FE/Unsplash_Images"
+    output_root: "/home/21013187/Vietnam_Signlanguage_FE/person_with_backgrounds"

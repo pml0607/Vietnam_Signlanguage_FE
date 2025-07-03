@@ -4,24 +4,29 @@ import numpy as np
 from ultralytics import YOLO
 from glob import glob
 from tqdm import tqdm
+import yaml
 
-# === CẤU HÌNH ===
-video_root = "/home/21013187/Vietnam_Signlanguage_FE/vietnamsignlanguage/mediapipe"
-output_root = "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2"
+# === Load config ===
+with open("../Configurate/config_segmentation.yaml", "r") as f:
+    cfg = yaml.safe_load(f)
+    
+
+video_root = cfg["segmentation"]["paths"]["video_root"]
+output_root = cfg["segmentation"]["paths"]["output_root"]
 bitwise_dir = os.path.join(output_root, "bitwised")
 mask_dir = os.path.join(output_root, "mask")
+model_path = cfg["segmentation"]["model"]["path"]
 
-model_path = "/home/21013187/Vietnam_Signlanguage_FE/Ultralytics/yolo11l-seg.pt"
 model = YOLO(model_path)
 
-# === LẤY DANH SÁCH VIDEO ===
+# Get all video files
 video_list = glob(os.path.join(video_root, "**", "*.avi"), recursive=True)
 
-# === CHIA THÀNH BATCH ===
+# Split into batches
 batch_size = 10
 batches = [video_list[i:i+batch_size] for i in range(0, len(video_list), batch_size)]
 
-# === HÀM XỬ LÝ 1 VIDEO ===
+# Function to process each video
 def process_video(video_path):
     try:
         rel_path = os.path.relpath(video_path, video_root)
@@ -67,13 +72,12 @@ def process_video(video_path):
         out_mask.release()
         return True
     except Exception as e:
-        print(f"❌ Lỗi với video {video_path}: {e}")
+        print(f"Error in video {video_path}: {e}")
         return False
 
-# === XỬ LÝ THEO BATCH ===
 for batch_idx, batch in enumerate(batches):
-    print(f"\n🚀 Đang xử lý batch {batch_idx+1}/{len(batches)} ({len(batch)} videos)")
+    print(f"\nProessing batch {batch_idx+1}/{len(batches)} ({len(batch)} videos)")
     for video_path in tqdm(batch, desc=f"Batch {batch_idx+1}"):
         process_video(video_path)
 
-print("\n✅ Xử lý toàn bộ video hoàn tất.")
+print("\nProcessing complete!")

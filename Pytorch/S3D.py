@@ -11,6 +11,15 @@ from torchvision.models._api import register_model, Weights, WeightsEnum
 from torchvision.models._meta import _KINETICS400_CATEGORIES
 from torchvision.models._utils import _ovewrite_named_param, handle_legacy_interface
 
+import yaml
+
+def load_config(path="../Configurate/train.yaml"):
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+config = load_config()
+
+in_channels = config["model"]["in_channels"]
 
 __all__ = [
     "S3D",
@@ -106,6 +115,7 @@ class S3D(nn.Module):
         num_classes: int = 400,
         dropout: float = 0.2,
         norm_layer: Optional[Callable[..., torch.nn.Module]] = None,
+        in_channels: int = in_channels,
     ) -> None:
         super().__init__()
         _log_api_usage_once(self)
@@ -114,7 +124,7 @@ class S3D(nn.Module):
             norm_layer = partial(nn.BatchNorm3d, eps=0.001, momentum=0.001)
 
         self.features = nn.Sequential(
-            TemporalSeparableConv(3, 64, 7, 2, 3, norm_layer),
+            TemporalSeparableConv(in_channels, 64, 7, 2, 3, norm_layer),
             nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1)),
             Conv3dNormActivation(
                 64,
@@ -212,18 +222,21 @@ def s3d_linh(*, weights: Optional[S3D_Weights] = None, progress: bool = True, **
         _ovewrite_named_param(kwargs, "num_classes", len(weights.meta["categories"]))
 
     model = S3D(**kwargs)
-
-    # if weights is not None:
-    #     state_dict = weights.get_state_dict(progress=progress)
-    #     conv1_key = "features.0.0.0.weight"
-    #     pretrained_conv1 = state_dict[conv1_key]  # shape [64, 3, 1, 7, 7]
-    #     model_conv1 = model.features[0][0][0].weight  # shape [64, 6, 1, 7, 7]
         
-    #     if model_conv1.shape != pretrained_conv1.shape:
-    #         repeated = pretrained_conv1.repeat(1, 2, 1, 1, 1) / 2
-    #         state_dict[conv1_key] = repeated
-    #     model.load_state_dict(state_dict, strict=False)
     if weights is not None:
-        model.load_state_dict(weights.get_state_dict(progress=progress))
+        if in_channels == 3:
+            model.load_state_dict(weights.get_state_dict(progress=progress))
+        elif in_channels == 6:
+            state_dict = weights.get_state_dict(progress=progress)
+            conv1_key = "features.0.0.0.weight"
+            pretrained_conv1 = state_dict[conv1_key]  # shape [64, 3, 1, 7, 7]
+            model_conv1 = model.features[0][0][0].weight  # shape [64, 6, 1, 7, 7]
+            
+            if model_conv1.shape != pretrained_conv1.shape:
+                repeated = pretrained_conv1.repeat(1, 2, 1, 1, 1) / 2
+                state_dict[conv1_key] = repeated
+            model.load_state_dict(state_dict, strict=False)
+        else:
+            raise ValueError(f"Unsupported in_channels: {in_channels}. Expected 3 or 6, got {in_channels}.")
 
     return model

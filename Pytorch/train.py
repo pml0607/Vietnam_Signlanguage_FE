@@ -13,22 +13,42 @@ from dataset import PreprocessedClipDataset
 from model import build_s3d_model
 from train_utils import clip_collate_fn
 from dataset import SingleStreamAugmentation, DualStreamAugmentation
+import yaml
+
+def load_config(config_path="../Configurate/train.yaml"):
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+config = load_config()
+
 
 # Config
-train_dir = "preprocessed_segmented_clips/train"
-val_dir = "preprocessed_segmented_clips/val"
-batch_size = 4
-epochs = 10
-lr = 1e-4
-log_dir = "runs/s3d_experiment_segmented"
+train_dir = config['paths']['train_dir']
+val_dir = config['paths']['val_dir']
+log_dir = config['paths']['log_dir']
+best_model_path = config['paths']['best_model_path']
+
+batch_size = config['training']['batch_size']
+epochs = config['training']['epochs']
+lr = config['training']['learning_rate']
+num_classes = config['training']['num_classes']
+freeze_until = config['training']['freeze_until_layer']
+num_workers = config['dataloader']['num_workers']
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-transform = SingleStreamAugmentation()
+if config['augmentation']['single_stream']['enable']:
+    transform = SingleStreamAugmentation()
+elif config['augmentation']['dual_stream']['enable']:
+    transform = DualStreamAugmentation()
+else:
+    transform = None 
+
 # Datasets & Dataloaders
 train_dataset = PreprocessedClipDataset(train_dir, transform)
 val_dataset = PreprocessedClipDataset(val_dir)
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1, collate_fn=clip_collate_fn)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1, collate_fn=clip_collate_fn)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=clip_collate_fn)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=clip_collate_fn)
 
 # Model
 model = build_s3d_model(num_classes=15, pretrained=True, freeze_until_layer=12)
@@ -114,7 +134,7 @@ for epoch in range(1, epochs + 1):
     # Save best model
     if val_acc > best_val_acc:
         best_val_acc = val_acc
-        torch.save(model.state_dict(), "best_s3d_model_segmented.pt")
+        torch.save(model.state_dict(), best_model_path)
         print("Saved best model!")
 
 writer.close()

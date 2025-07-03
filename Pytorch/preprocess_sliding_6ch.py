@@ -4,9 +4,14 @@ import pandas as pd
 import torchvision
 from torchvision.transforms import functional as F
 from tqdm import tqdm
+import yaml
+
+def load_config(path="../Configurate/data_preprocess.yaml"):
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
 
 def normalize_clip(clip):
-    # Áp dụng chuẩn hóa từng nhóm 3 kênh
+    # Convert to float and normalize
     mean = torch.tensor([0.43216, 0.394666, 0.37645] * 2)[:, None, None, None]
     std = torch.tensor([0.22803, 0.22145, 0.216989] * 2)[:, None, None, None]
     return (clip / 255.0 - mean) / std
@@ -42,19 +47,19 @@ def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size
     df = pd.read_csv(csv_path)
 
     clip_idx_global = 0
-    for row in tqdm(df.itertuples(), total=len(df), desc=f"[{split_name}] Đang xử lý video"):
+    for row in tqdm(df.itertuples(), total=len(df), desc=f"[{split_name}] Processing videos"):
         try:
             video_rgb = read_and_preprocess_video(row.video_path)
             video_skeleton = read_and_preprocess_video(row.skeleton_path)
             label = int(row.label)
             video_id = get_video_id(row.video_path)
 
-            # Đồng bộ độ dài (T)
+            # Sync lengths
             T = min(video_rgb.shape[1], video_skeleton.shape[1])
             video_rgb = video_rgb[:, :T]
             video_skeleton = video_skeleton[:, :T]
 
-            # Ghép kênh
+            # Merge RGB and skeleton channels
             video_combined = torch.cat([video_rgb, video_skeleton], dim=0)  # (6, T, H, W)
 
             clips = extract_clips(video_combined, num_frames=num_frames, stride=stride)
@@ -75,24 +80,23 @@ def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size
                 clip_idx_global += 1
 
         except Exception as e:
-            print(f"⚠️ Lỗi xử lý {row.video_path} & {row.skeleton_path}: {e}")
+            print(f"Error in processing {row.video_path} & {row.skeleton_path}: {e}")
 
 if __name__ == "__main__":
-    output_root = "preprocessed_clips_6ch_v3"
+    config = load_config()
+    output_root = config['output_root']
     os.makedirs(output_root, exist_ok=True)
 
-    configs = [
-        ("../heat_map_data/train/skeleton_paths.csv", "train"),
-        ("../heat_map_data/val/skeleton_paths.csv", "val")
-    ]
+    for split_name, split_info in config['splits'].items():
+        csv_file = split_info['csv_path']
+        out_dir = os.path.join(output_root, split_name)
 
-    for csv_file, split in configs:
-        out_dir = os.path.join(output_root, split)
         process_csv(
             csv_path=csv_file,
-            split_name=split,
+            split_name=split_name,
             output_dir=out_dir,
-            num_frames=64,
-            stride=32,
-            size=(224, 224)
+            num_frames=config['video']['num_frames'],
+            stride=config['video']['stride'],
+            size=tuple(config['video']['size'])
         )
+

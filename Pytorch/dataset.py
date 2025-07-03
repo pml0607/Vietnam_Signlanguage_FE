@@ -18,7 +18,7 @@ class SingleStreamAugmentation:
         return: Tensor (3, T, H, W) – augmented RGB video
         """
         C, T, H, W = clip.shape
-        assert C == 3, "Đầu vào phải là video RGB với 3 kênh."
+        assert C == 3, "output clip must have 3 channels (RGB)"
 
         aug_frames = []
 
@@ -88,7 +88,7 @@ class DualStreamAugmentation:
 class PreprocessedClipDataset(Dataset):
     def __init__(self, root_dir, transform = None):
         """
-        root_dir: thư mục chứa các file .pt (ví dụ: 'preprocessed_clips/train')
+        root_dir: Directory containing preprocessed video clips.
         """
         self.files = sorted([
             os.path.join(root_dir, f)

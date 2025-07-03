@@ -1,0 +1,25 @@
+paths:
+  train_dir: "preprocessed_segmented_clips/train"
+  val_dir: "preprocessed_segmented_clips/val"
+  log_dir: "runs/s3d_experiment_segmented"
+  best_model_path: "../Weight/best_s3d_model_segmented.pt"
+
+training:
+  batch_size: 4
+  epochs: 10
+  learning_rate: 0.0001
+  num_classes: 15
+  freeze_until_layer: 12
+model:
+  pretrained: true
+  in_channels: 3  # Adjusted to match the input channels of your dataset
+  freeze_until_layer: 12
+  
+dataloader:
+  num_workers: 1
+
+augmentation: 
+  single_stream: 
+    enable: true
+  dual_stream:
+    enable: false

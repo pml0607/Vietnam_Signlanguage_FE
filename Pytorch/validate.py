@@ -7,14 +7,24 @@ from sklearn.metrics import classification_report, confusion_matrix
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import yaml
 import os
 
-# Config
-val_dir = "preprocessed_segmented_clips/val"
-batch_size = 4
-num_classes = 15
-model_path = "best_s3d_model_segmented.pt"
-cm_output_path = "confusion_matrix_v5.png"
+# Load config
+def load_config(config_path="../Configurate/validate.yaml"):
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+config = load_config()
+infer_cfg = config['inference']
+
+# Paths and parameters
+val_dir = infer_cfg['val_dir']
+batch_size = infer_cfg['batch_size']
+num_classes = infer_cfg['num_classes']
+model_path = infer_cfg['model_path']
+cm_output_path = infer_cfg['cm_output_path']
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Dataset & Dataloader
@@ -44,8 +54,8 @@ with torch.no_grad():
         total += labels.size(0)
 
 acc = correct / total
-print(f"\n✅ Accuracy: {acc:.2%}")
-print("📊 Classification Report:")
+print(f"\nAccuracy: {acc:.2%}")
+print("Classification Report:")
 print(classification_report(all_labels, all_preds, digits=4))
 
 # Confusion Matrix
@@ -57,4 +67,4 @@ plt.ylabel("True")
 plt.title("Confusion Matrix")
 plt.tight_layout()
 plt.savefig(cm_output_path)
-print(f"📥 Confusion matrix saved to {cm_output_path}")
+print(f"Confusion matrix saved to {cm_output_path}")

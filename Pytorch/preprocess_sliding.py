@@ -4,6 +4,12 @@ import pandas as pd
 import torchvision
 from torchvision.transforms import functional as F
 from tqdm import tqdm
+import yaml
+
+def load_config(path="../Configurate/data_preprocess.yaml"):
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
 
 def normalize_clip(clip):
     mean = torch.tensor([0.43216, 0.394666, 0.37645])[:, None, None, None]
@@ -37,7 +43,7 @@ def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size
     df = pd.read_csv(csv_path)
 
     clip_idx_global = 0
-    for row in tqdm(df.itertuples(), total=len(df), desc=f"[{split_name}] Đang xử lý video"):
+    for row in tqdm(df.itertuples(), total=len(df), desc=f"[{split_name}] Processing videos"):
         video_path = row.video_path
         label = int(row.label)
         video_id = get_video_id(video_path)
@@ -64,24 +70,23 @@ def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size
                 clip_idx_global += 1
 
         except Exception as e:
-            print(f"⚠️ Lỗi xử lý {video_path}: {e}")
+            print(f"Error in processing {video_path}: {e}")
 
 if __name__ == "__main__":
-    output_root = "preprocessed_segmented_clips"
+    config = load_config()
+    output_root = config['output_root']
     os.makedirs(output_root, exist_ok=True)
 
-    configs = [
-        ("/home/21013187/Vietnam_Signlanguage_FE/cnn_train_1_segmented.corpus.csv", "train"),
-        ("/home/21013187/Vietnam_Signlanguage_FE/cnn_val_1_segmented.corpus.csv", "val")
-    ]
+    for split_name, split_info in config['splits'].items():
+        csv_file = split_info['csv_path']
+        out_dir = os.path.join(output_root, split_name)
 
-    for csv_file, split in configs:
-        out_dir = os.path.join(output_root, split)
         process_csv(
             csv_path=csv_file,
-            split_name=split,
+            split_name=split_name,
             output_dir=out_dir,
-            num_frames=64,
-            stride=32,
-            size=(224, 224)
+            num_frames=config['video']['num_frames'],
+            stride=config['video']['stride'],
+            size=tuple(config['video']['size'])
         )
+
