@@ -7,7 +7,7 @@ from tqdm import tqdm
 import yaml
 
 # === Load config ===
-with open("../Configurate/config_segmentation.yaml", "r") as f:
+with open("../Configurate/segmentation.yaml", "r") as f:
     cfg = yaml.safe_load(f)
     
 

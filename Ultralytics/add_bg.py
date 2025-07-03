@@ -10,7 +10,7 @@ import random
 import yaml
 
 # === Load config ===
-with open("config_blending.yaml", "r") as f:
+with open("../Configurate/segmentation.yaml", "r") as f:
     cfg = yaml.safe_load(f)
 
 bitwised_root = cfg["paths"]["bitwised_root"]
