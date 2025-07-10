@@ -1,6 +1,6 @@
 inference:
-  val_dir: "preprocessed_segmented_clips/val"
-  model_path: "../Weight/best_s3d_model_segmented.pt"
+  val_dir: "preprocessed_clips_6ch_v3/val"
+  model_path: "../Weight/best_s3d_model_6ch_v3.pt"
   batch_size: 4
   num_classes: 15
-  cm_output_path: "confusion_matrix_v5.png"
+  cm_output_path: "confusion_matrix_v6.png"

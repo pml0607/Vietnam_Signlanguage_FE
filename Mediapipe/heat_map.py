@@ -115,13 +115,17 @@ def process_csv(csv_path, output_dir='output'):
             out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
 
             try:
-                visualize_on_video(video_path, npy_path, label, out_path)
+                visualize_on_video(video_path, npy_path, out_path)
             except Exception as e:
                 print(f"Error in processing {video_path}: {e}")
     
     with open(csv_path, newline='') as f:
         reader = csv.DictReader(f)
-        output_csv_path = os.path.join(output_dir, 'skeleton_paths.csv')
+        os.makedirs(output_dir, exist_ok=True)
+        # Create output CSV file to store video and skeleton paths
+        # If it doesn't exist, create it
+        output_csv_path = os.path.join(output_dir, 'skeleton_paths.csv' ) 
+        os.makedirs(output_dir, exist_ok=True)
         with open(output_csv_path, 'w', newline='') as out_f:
             writer = csv.writer(out_f)
             writer.writerow(['video_path', 'skeleton_path', 'label'])
