@@ -14,6 +14,21 @@ from model import build_s3d_model
 from train_utils import clip_collate_fn
 from dataset import SingleStreamAugmentation, DualStreamAugmentation
 import yaml
+import argparse
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--local_rank", type=int, default=0, help="Local rank for distributed training")
+parser.add_argument("--save_name", type=str, default="default_run", help="saving model")
+args = parser.parse_args()
+
+torch.cuda.set_device(args.local_rank)
+dist.init_process_group(backend='nccl')
+device = torch.device("cuda", args.local_rank)
+
 
 def load_config(config_path="../Configurate/train.yaml"):
     with open(config_path, 'r') as f:
@@ -34,8 +49,9 @@ lr = config['training']['learning_rate']
 num_classes = config['training']['num_classes']
 freeze_until = config['training']['freeze_until_layer']
 num_workers = config['dataloader']['num_workers']
+num_classes = config['training']['num_classes']
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 if config['augmentation']['single_stream']['enable']:
     transform = SingleStreamAugmentation()
 elif config['augmentation']['dual_stream']['enable']:
@@ -46,12 +62,13 @@ else:
 # Datasets & Dataloaders
 train_dataset = PreprocessedClipDataset(train_dir, transform)
 val_dataset = PreprocessedClipDataset(val_dir)
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=clip_collate_fn)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=clip_collate_fn)
+train_sampler = DistributedSampler(train_dataset, shuffle=True)
+val_sampler = DistributedSampler(val_dataset, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, num_workers=num_workers, collate_fn=clip_collate_fn)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, num_workers=num_workers, collate_fn=clip_collate_fn)
 
 # Model
-model = build_s3d_model(num_classes=15, pretrained=True, freeze_until_layer=12)
+model = build_s3d_model(num_classes=num_classes, pretrained=True, freeze_until_layer=freeze_until)
 # import pdb;pdb.set_trace()
 model.to(device)
 
@@ -64,6 +81,7 @@ writer = SummaryWriter(log_dir=log_dir)
 # Training loop
 def train_one_epoch(model, loader, optimizer, criterion):
     model.train()
+    loader.sampler.set_epoch(0)  
     running_loss = 0.0
     correct, total = 0, 0
     for clips, labels, _, _ in tqdm(loader, desc="Training", leave=False):
@@ -120,22 +138,30 @@ for epoch in range(1, epochs + 1):
     print(f"Val   Loss: {val_loss:.4f} | Acc: {val_acc:.2%}")
 
     # TensorBoard logging
-    writer.add_scalars('Loss', {
-        'Train': train_loss,
-        'Val': val_loss
-    }, epoch)
+    print("Writer is:", writer)
+    if writer is not None:
+        writer.add_scalars('Loss', {
+            'Train': train_loss,
+            'Val': val_loss
+        }, epoch)
 
-    writer.add_scalars('Accuracy', {
-        'Train': train_acc,
-        'Val': val_acc
-    }, epoch)
+        writer.add_scalars('Accuracy', {
+            'Train': train_acc,
+            'Val': val_acc
+        }, epoch)
+    if dist.get_rank() == 0:
+        writer = SummaryWriter(log_dir=log_dir)
+    else:
+        writer = None
+
 
     # scheduler.step(val_loss)
     # Save best model
-    if val_acc > best_val_acc:
+    if dist.get_rank() == 0 and val_acc > best_val_acc:
         best_val_acc = val_acc
         torch.save(model.state_dict(), best_model_path)
-        print("Saved best model!")
+dist.destroy_process_group()
+
 
 writer.close()
 print("\nTraining finished.")

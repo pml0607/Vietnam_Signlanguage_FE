@@ -20,7 +20,7 @@ model_path = cfg["segmentation"]["model"]["path"]
 model = YOLO(model_path)
 
 # Get all video files
-video_list = glob(os.path.join(video_root, "**", "*.avi"), recursive=True)
+video_list = glob(os.path.join(video_root, "*", "rgb", "*.avi"))
 
 # Split into batches
 batch_size = 10
