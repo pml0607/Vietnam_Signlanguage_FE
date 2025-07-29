@@ -16,7 +16,7 @@ class VideoMAEEmbeddings(nn.Module):
 		self.num_patches = self.patch_embeddings.num_patches
 		# fixed sin-cos embedding 
      	#100 for additionall info like landmarks
-		self.position_embeddings = get_sinusoid_encoding_table(self.num_patches+64, config.hidden_size)
+		self.position_embeddings = get_sinusoid_encoding_table(self.num_patches, config.hidden_size)
 		self.config = config
 
 		

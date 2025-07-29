@@ -16,7 +16,7 @@ from _fn.metric import compute_metrics
 
 def main(dataset_root_path= "/work/21013187/SAM-SLR-v2/data/person_with_backgrounds",
          model_ckpt = "MCG-NJU/videomae-base" 
-         ,num_epochs: int = 20,
+         ,num_epochs: int = 5,
          batch_size: int = 20):
     
     #prepare dataset info
@@ -24,7 +24,7 @@ def main(dataset_root_path= "/work/21013187/SAM-SLR-v2/data/person_with_backgrou
     # label2id, id2label = get_label_map(dataset_root_path)
     #prepare model
     # the last classify layer with change num class output with len(label2id)
-    model = VideoMAEForVideoClassification.from_pretrained("/work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark/videomae-base-finetuned-47classes/checkpoint-1650",
+    model = VideoMAEForVideoClassification.from_pretrained("/work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark/videomae-base-finetuned-47classes/checkpoint-3300",
         # model_ckpt,
         # label2id=label2id,
         # id2label=id2label,

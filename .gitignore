@@ -28,7 +28,13 @@ Preprocessed_data/
 videomae-base-finetuned/
 videomae-base-finetuned-48classes/
 videomae-base-finetuned-47classes/
+videomae-base-finetuned_47classes/
 logs/
 seg_logs/
+segmented_logs/
+data/
+results/
 __pycache__/
 *.avi
+*.mp4
+*.pth

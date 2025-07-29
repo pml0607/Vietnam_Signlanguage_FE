@@ -1,7 +1,7 @@
 import os
 import torch
 
-from dataset.video_transforms import (
+from Transformer.rgb_landmark.dataset.video_transforms import (
     ApplyTransformToKey,
     Normalize as VideoNormalize,
     RandomShortSideScale,
@@ -10,7 +10,7 @@ from dataset.video_transforms import (
     RemoveKey
 )
 
-from dataset.landmark_transforms import (
+from Transformer.rgb_landmark.dataset.landmark_transforms import (
     Normalize as LandmarkNormalize,
     RandomHorizontalFlip as LandmarkRandomHorizontalFlip,
     UniformTemporalSubsample as LandmarkUniformTemporalSubsample,
@@ -26,7 +26,7 @@ from torchvision.transforms import (
 )
 
 import pytorchvideo
-from dataset.utils import labeled_video_dataset
+from Transformer.rgb_landmark.dataset.utils import labeled_video_dataset
 
 def get_dataset(dataset_root_path,
                 img_size = (224, 224),

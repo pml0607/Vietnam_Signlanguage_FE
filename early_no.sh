@@ -8,26 +8,26 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 
-#SBATCH --output=/work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark/logs/%x_%j_%D.out
-#SBATCH --error=/work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark/logs/%x_%j_%D.err
+#SBATCH --output=/work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark_v2/segmented_logs/%x_%j_%D.out
+#SBATCH --error=/work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark_v2/segmented_logs/%x_%j_%D.err
 #SBATCH --export=MASTER_ADDR=localhost
 
 # export MASTER_ADDR=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)
 source /home/21013187/anaconda3/etc/profile.d/conda.sh
 squeue --me
-cd /work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark
+cd /work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark_v2
 module load python cuda
 conda deactivate
 conda deactivate
 conda deactivate
 
 conda activate py311
-export CUDA_VISIBLE_DEVICES=5
+export CUDA_VISIBLE_DEVICES=3
 python --version
 
 torchrun --nproc_per_node=1 \
- --rdzv_id=100 \
+ --rdzv_id=102 \
  --rdzv_backend=c10d \
- /work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark/train.py \
+ /work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark_v2/train.py \
  --save_name='early_no_trans'
 

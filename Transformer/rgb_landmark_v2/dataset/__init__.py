@@ -41,22 +41,19 @@ def get_dataset(dataset_root_path,
 
     print(f"Total videos: {video_total}")
     
-    # chua biet cai nay lam gi :)) nhung dung xoa
     sample_rate = 4
     fps = 30
     clip_duration = num_frames * sample_rate / fps
 
-    # -- NOTE -- Tung: transfrom tren vid -> transform tren landmark tuong tu k (cung gia tri so voi vid)
-    
     # Training dataset transformations.
     train_transform = Compose(
         [
-            # apply all the key
+            # Remove unused keys first
             RemoveKey(['video_index','clip_index','aug_index','video_name']),
+            # Apply temporal subsampling to both video and landmarks
             UniformTemporalSubsample(num_frames),
-            # apply just only key focus
-            #remove unuse key
-            RemoveKey(['video_index','clip_index','aug_index','video_name']),
+            
+            # Video transforms
             ApplyTransformToKey(
                 key = 'video',
                 transform=Compose(
@@ -70,13 +67,18 @@ def get_dataset(dataset_root_path,
                 ),
             ),
 
+            # Landmark transforms - đồng bộ với video transforms
             ApplyTransformToKey(
                 key = 'landmark',
                 transform=Compose(
                     [
+                        # Normalize landmarks to a reasonable range
                         LandmarkNormalize(mean=(0, 0, 0), std=(1, 1, 1)),  
+                        # Temporal subsampling should match video
                         LandmarkUniformTemporalSubsample(num_frames),  
+                        # Crop landmarks to match video crop
                         LandmarkRandomCrop(output_size=img_size, original_size=(256, 256)),  
+                        # Flip landmarks to match video flip
                         LandmarkRandomHorizontalFlip(p=0.5),  
                     ]
                 ),
@@ -97,6 +99,7 @@ def get_dataset(dataset_root_path,
         [
             RemoveKey(['video_index','clip_index','aug_index','video_name']),
             UniformTemporalSubsample(num_frames),
+            
             ApplyTransformToKey(
                 key="video",
                 transform=Compose(
@@ -107,7 +110,8 @@ def get_dataset(dataset_root_path,
                     ]
                 ),
             ),
-            # Add transform for landmark - validation set
+            
+            # Landmark transforms for validation
             ApplyTransformToKey(
                 key = 'landmark',
                 transform=Compose(
@@ -138,35 +142,23 @@ def get_dataset(dataset_root_path,
     
     return train_dataset,val_dataset,test_dataset
 
-
-
-
 def collate_fn(examples):
     """The collation function to be used by `Trainer` to prepare data batches."""
     # permute to (num_frames, num_channels, height, width)
     pixel_values = torch.stack(
         [example["video"].permute(1, 0, 2, 3) for example in examples]
     )
+    
+    # Stack landmarks - shape should be (B, T, N, C) where:
+    # B = batch_size, T = num_frames, N = num_keypoints (133), C = coordinates (3)
     landmarks = torch.stack(
         [example["landmark"] for example in examples]
     )
-    labels = torch.tensor([example["label"] for example in examples],dtype=torch.long)
-    return {"pixel_values": pixel_values, "labels": labels,"landmarks":landmarks}
-
-def collate_fn_test(examples):
-    """Safe collation function for test mode."""
-    batch = {}
-
-    if "video" in examples[0]:
-        batch["pixel_values"] = torch.stack([
-            example["video"].permute(1, 0, 2, 3) for example in examples
-        ])
-
-    if "landmark" in examples[0]:
-        batch["landmarks"] = torch.stack([
-            example["landmark"] for example in examples
-        ])
-
-    batch["labels"] = torch.tensor([example["label"] for example in examples], dtype=torch.long)
-
-    return batch
+    
+    labels = torch.tensor([example["label"] for example in examples], dtype=torch.long)
+    
+    return {
+        "pixel_values": pixel_values, 
+        "labels": labels,
+        "landmarks": landmarks
+    }

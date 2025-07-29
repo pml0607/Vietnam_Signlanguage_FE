@@ -16,24 +16,24 @@ from _fn.metric import compute_metrics
 
 def main(dataset_root_path= "/work/21013187/SAM-SLR-v2/data/person_with_backgrounds",
          model_ckpt = "MCG-NJU/videomae-base" 
-         ,num_epochs: int = 20,
+         ,num_epochs: int = 30,
          batch_size: int = 20):
     
     #prepare dataset info
     dataset_root_path = Path(dataset_root_path)
-    # label2id, id2label = get_label_map(dataset_root_path)
+    label2id, id2label = get_label_map(dataset_root_path)
     #prepare model
     # the last classify layer with change num class output with len(label2id)
-    model = VideoMAEForVideoClassification.from_pretrained("/work/21013187/linh/Vietnam_Signlanguage_FE/Transformer/rgb+landmark/videomae-base-finetuned-47classes/checkpoint-1650",
-        # model_ckpt,
-        # label2id=label2id,
-        # id2label=id2label,
-        # ignore_mismatched_sizes=True
+    model = VideoMAEForVideoClassification.from_pretrained(
+        model_ckpt,
+        label2id=label2id,
+        id2label=id2label,
+        ignore_mismatched_sizes=True
     )
 
     train_dataset, val_dataset, test_dataset = get_dataset(dataset_root_path)
     model_name = model_ckpt.split("/")[-1]
-    new_model_name = f"{model_name}-finetuned-47classes"
+    new_model_name = f"{model_name}-finetuned_47classes"
     print(f"Batch size: {batch_size}") 
     print(f"Epochs : {num_epochs}")
     args = TrainingArguments(

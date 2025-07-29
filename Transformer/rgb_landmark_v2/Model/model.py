@@ -32,13 +32,79 @@ logger = logging.get_logger(__name__)
 class LandmarkFusionModule(nn.Module):
     '''Module to fuse landmarks with video encoder output.'''
     def __init__(self, config):
-		super().__init__()
-		self.config = config
-		hidden_size = config.hidden_size
-		# Project landmarks to match hidden size
-		self.landmark_proj = nn.Linear(133 * 3, hidden_size)
-  
-
+        super().__init__()
+        self.config = config
+        hidden_size = config.hidden_size
+        # Project landmarks to match hidden size
+        self.landmark_proj = nn.Linear(133 * 3, hidden_size)
+        self.landmark_encoder = nn.TransformerEncoder(
+			nn.TransformerEncoderLayer(
+				d_model=hidden_size,
+				nhead=config.num_attention_heads,
+				dim_feedforward=config.intermediate_size,
+				activation=config.hidden_dropout_prob,
+				batch_first=True
+			),
+			num_layers=config.num_hidden_layers,
+		)
+        self.fusion_type = getattr(config, "fusion_type", "concat")
+        
+        if self.fusion_type == "concat":
+            self.fusion_proj = nn.Linear(hidden_size * 2, hidden_size)
+        elif self.fusion_type == "cross_attention":
+            self.cross_attention = nn.MultiheadAttention(
+				embed_dim=hidden_size,
+				num_heads=config.num_attention_heads,
+				dropout=config.hidden_dropout_prob,
+				batch_first=True
+			)
+            
+        self.layer_norm = nn.LayerNorm(hidden_size, eps=config.layer_norm_eps)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+    def forward(self, video_features, landmarks):
+        '''
+        Args:
+			video_features: Tensor of shape (batch_size, seq_len, hidden_size) - video encoder output.
+			landmarks: Tensor of shape (batch_size, num_landmarks, 3) - landmark coordinates.
+		Returns:
+			Tensor of shape (batch_size, seq_len, hidden_size) - fused features.
+        '''
+        batch_size = video_features.shape[0]
+        
+        #Process landmarks
+        landmarks_flat = landmarks.flatten(-2)  # Shape: (batch_size, num_landmarks * 3)
+        landmarks_proj = self.landmark_proj(landmarks_flat)  # Shape: (batch_size, hidden_size)
+        
+        landmarks_encoded = self.landmark_encoder(
+            landmarks_proj.unsqueeze(1)  # Add sequence dimension: (batch_size, 1, hidden_size)
+		)
+        if self.fusion_type == "concat":
+            landmarks_pooled = landmarks_encoded.mean(dim=1, keepdim=True)  # Shape: (batch_size, hidden_size)
+            landmarks_pooled = landmarks_pooled.expand(-1, video_features.shape[1], -1)
+            
+            #Element-wise concat
+            fused_features = torch.cat([video_features, landmarks_pooled], dim=-1)  # Shape: (batch_size, seq_len, hidden_size * 2)
+            fused_features = self.fusion_proj(fused_features)  # Shape: (batch_size, seq_len, hidden_size)
+            
+        elif self.fusion_type == "add":
+            landmarks_pooled = landmarks_encoded.mean(dim=1, keepdim=True)
+            landmarks_pooled = landmarks_pooled.expand(-1, video_features.shape[1], -1)
+            
+            fused_features = video_features + landmarks_pooled  # Shape: (batch_size, seq_len, hidden_size)
+        elif self.fusion_type == "cross_attention":
+            landmarks_pooled = landmarks_encoded.mean(dim=1, keepdim=True)  # Shape: (batch_size, 1, hidden_size)
+            landmarks_pooled = landmarks_pooled.expand(-1, video_features.shape[1], -1)
+            
+            attention_features, _ = self.cross_attention(
+                query=video_features,
+                key=landmarks_pooled,
+                valua=landmarks_pooled
+			)
+            fused_features = attention_features + video_features  # Residual connection
+            
+        fused_features = self.layer_norm(fused_features)
+        fused_features = self.dropout(fused_features)
+        return fused_features
 # Copied from transformers.models.vit.modeling_vit.ViTEncoder with ViT->VideoMAE
 class VideoMAEEncoder(nn.Module):
 	def __init__(self, config: VideoMAEConfig) -> None:
@@ -95,155 +161,69 @@ class VideoMAEEncoder(nn.Module):
 
 
 class VideoMAEModel(VideoMAEPreTrainedModel):
-	def __init__(self, config):
-		super().__init__(config)
-		self.config = config
-
-		self.embeddings = VideoMAEEmbeddings(config)
-		self.encoder = VideoMAEEncoder(config)
-
-		if config.use_mean_pooling:
-			self.layernorm = None
-		else:
-			self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-
-		# Initialize weights and apply final processing
-		self.post_init()
-
-	def get_input_embeddings(self):
-		return self.embeddings.patch_embeddings
-
-	def _prune_heads(self, heads_to_prune,landmarks  ):
-		"""
-		Prunes heads of the model. heads_to_prune: dict of {layer_num: list of heads to prune in this layer} See base
-		class PreTrainedModel
-		"""
-		for layer, heads in heads_to_prune.items():
-			self.encoder.layer[layer].attention.prune_heads(heads)
-
-
-	def forward(
-		self,
-		pixel_values: torch.FloatTensor,
-		landmarks = None,
-		bool_masked_pos: Optional[torch.BoolTensor] = None,
-		head_mask: Optional[torch.Tensor] = None,
-		output_attentions: Optional[bool] = None,
-		output_hidden_states: Optional[bool] = None,
-		return_dict: Optional[bool] = None,
-	) -> Union[Tuple, BaseModelOutput]:
-		r"""
-		bool_masked_pos (`torch.BoolTensor` of shape `(batch_size, sequence_length)`, *optional*):
-			Boolean masked positions. Indicates which patches are masked (1) and which aren't (0). Each video in the
-			batch must have the same number of masked patches. If `None`, then all patches are considered. Sequence
-			length is `(num_frames // tubelet_size) * (image_size // patch_size) ** 2`.
-
-		Returns:
-
-		Examples:
-
-		```python
-		>>> import av
-		>>> import numpy as np
-
-		>>> from transformers import AutoImageProcessor, VideoMAEModel
-		>>> from huggingface_hub import hf_hub_download
-
-		>>> np.random.seed(0)
-
-
-		>>> def read_video_pyav(container, indices):
-		...     '''
-		...     Decode the video with PyAV decoder.
-		...     Args:
-		...         container (`av.container.input.InputContainer`): PyAV container.
-		...         indices (`List[int]`): List of frame indices to decode.
-		...     Returns:
-		...         result (np.ndarray): np array of decoded frames of shape (num_frames, height, width, 3).
-		...     '''
-		...     frames = []
-		...     container.seek(0)
-		...     start_index = indices[0]
-		...     end_index = indices[-1]
-		...     for i, frame in enumerate(container.decode(video=0)):
-		...         if i > end_index:
-		...             break
-		...         if i >= start_index and i in indices:
-		...             frames.append(frame)
-		...     return np.stack([x.to_ndarray(format="rgb24") for x in frames])
-
-
-		>>> def sample_frame_indices(clip_len, frame_sample_rate, seg_len):
-		...     '''
-		...     Sample a given number of frame indices from the video.
-		...     Args:
-		...         clip_len (`int`): Total number of frames to sample.
-		...         frame_sample_rate (`int`): Sample every n-th frame.
-		...         seg_len (`int`): Maximum allowed index of sample's last frame.
-		...     Returns:
-		...         indices (`List[int]`): List of sampled frame indices
-		...     '''
-		...     converted_len = int(clip_len * frame_sample_rate)
-		...     end_idx = np.random.randint(converted_len, seg_len)
-		...     start_idx = end_idx - converted_len
-		...     indices = np.linspace(start_idx, end_idx, num=clip_len)
-		...     indices = np.clip(indices, start_idx, end_idx - 1).astype(np.int64)
-		...     return indices
-
-
-		>>> # video clip consists of 300 frames (10 seconds at 30 FPS)
-		>>> file_path = hf_hub_download(
-		...     repo_id="nielsr/video-demo", filename="eating_spaghetti.mp4", repo_type="dataset"
-		... )
-		>>> container = av.open(file_path)
-
-		>>> # sample 16 frames
-		>>> indices = sample_frame_indices(clip_len=16, frame_sample_rate=1, seg_len=container.streams.video[0].frames)
-		>>> video = read_video_pyav(container, indices)
-
-		>>> image_processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base")
-		>>> model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base")
-
-		>>> # prepare video for the model
-		>>> inputs = image_processor(list(video), return_tensors="pt")
-
-		>>> # forward pass
-		>>> outputs = model(**inputs)
-		>>> last_hidden_states = outputs.last_hidden_state
-		>>> list(last_hidden_states.shape)
-		[1, 1568, 768]
-		```"""
-		output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-		output_hidden_states = (
-			output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-		)
-		return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-		# Prepare head mask if needed
+    def __init__(self, config):
+        super().__init__(config)
+        self.config = config
+        self.embeddings = VideoMAEEmbeddings(config)
+        self.encoder = VideoMAEEncoder(config) 
+        
+        self.use_landmarks = getattr(config, 'use_landmarks', False)
+        if self.use_landmarks:
+            self.landmark_fusion = LandmarkFusionModule(config)    
+        if config.use_mean_pooling:
+            self.layernorm = None
+        else:
+            self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.post_init()
+    def get_input_embeddings(self):
+        return self.embeddings.patch_embeddings
+    def _prune_heads(self, heads_to_prune,landmarks  ):
+        """
+        Prunes heads of the model. heads_to_prune: dict of {layer_num: list of heads to prune in this layer} See base class PreTrainedModel
+        """
+        for layer, heads in heads_to_prune.items():
+            self.encoder.layer[layer].attention.prune_heads(heads)
+    def forward(
+        self,
+        pixel_values: torch.FloatTensor,
+        landmarks = None,
+        bool_masked_pos: Optional[torch.BoolTensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        )-> Union[Tuple, BaseModelOutput]:
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        
+        # Prepare head mask if needed
 		# 1.0 in head_mask indicate we keep the head
 		# attention_probs has shape bsz x n_heads x N x N
 		# input head_mask has shape [num_heads] or [num_hidden_layers x num_heads]
 		# and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
-		head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
-
-		embedding_output = self.embeddings(pixel_values, bool_masked_pos,landmarks)
-
-		encoder_outputs = self.encoder(
+        head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
+        embedding_output = self.embeddings(pixel_values, bool_masked_pos,landmarks)
+        encoder_outputs = self.encoder(
 			embedding_output,
 			head_mask=head_mask,
 			output_attentions=output_attentions,
 			output_hidden_states=output_hidden_states,
 			return_dict=return_dict,
 		)
-	
-		sequence_output = encoder_outputs[0]
-		if self.layernorm is not None:
-			sequence_output = self.layernorm(sequence_output)
-
-		if not return_dict:
-			return (sequence_output,) + encoder_outputs[1:]
-
-		return BaseModelOutput(
+        sequence_output = encoder_outputs[0]
+        if self.use_landmarks and landmarks is not None:
+            sequence_output = self.landmark_fusion(sequence_output, landmarks)
+            
+        
+        if self.layernorm is not None:
+            sequence_output = self.layernorm(sequence_output)
+            
+        if not return_dict:
+            return (sequence_output,) + encoder_outputs[1:]
+        return BaseModelOutput(
 			last_hidden_state=sequence_output,
 			hidden_states=encoder_outputs.hidden_states,
 			attentions=encoder_outputs.attentions,
