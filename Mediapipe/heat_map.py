@@ -101,49 +101,60 @@ def visualize_on_video(video_path, npy_path, output_path):
     out_writer.release()
     print(f"Saved skeleton video: {output_path}")
     
-def process_csv(csv_path, output_dir='output'):
-    print(f"Processing csv file: {csv_path}"
-          f"\nNumber of videos: {sum(1 for _ in open(csv_path)) - 1}") 
-    with open(csv_path, newline='') as f:
-        reader = csv.DictReader(f)
-        for row in tqdm(reader, desc="Processing batch"):
-            video_path = row['video_path']
-            npy_path = row['file_path']
-            label = row['label']
-
-            video_name = os.path.splitext(os.path.basename(video_path))[0]
-            out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
-
-            try:
-                visualize_on_video(video_path, npy_path, label, out_path)
-            except Exception as e:
-                print(f"Error in processing {video_path}: {e}")
+video_path = '/work/21013187/SAM-SLR-v2/data/rgb/val/rgb/14_A110P16_.avi'
+npy_path = '/work/21013187/SAM-SLR-v2/data/rgb/val/npy/14_A110P16_.avi.npy'
+output_path = "./14_A110P16_skeleton.mp4"
+visualize_on_video(video_path, npy_path, output_path)
     
-    with open(csv_path, newline='') as f:
-        reader = csv.DictReader(f)
-        output_csv_path = os.path.join(output_dir, 'skeleton_paths.csv')
-        with open(output_csv_path, 'w', newline='') as out_f:
-            writer = csv.writer(out_f)
-            writer.writerow(['video_path', 'skeleton_path', 'label'])
-            for row in tqdm(reader, desc="Processing CSV for output"):
-                video_path = row['video_path']
-                npy_path = row['file_path']
-                label = row['label']
 
-                video_name = os.path.splitext(os.path.basename(video_path))[0]
-                out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
 
-                try:
-                    writer.writerow([video_path, out_path, label])
-                except Exception as e:
-                    print(f"Error in processing {video_path}: {e}")
+# def process_csv(csv_path, output_dir='output'):
+#     print(f"Processing csv file: {csv_path}"
+#           f"\nNumber of videos: {sum(1 for _ in open(csv_path)) - 1}") 
+#     with open(csv_path, newline='') as f:
+#         reader = csv.DictReader(f)
+#         for row in tqdm(reader, desc="Processing batch"):
+#             video_path = row['video_path']
+#             npy_path = row['file_path']
+#             label = row['label']
+
+#             video_name = os.path.splitext(os.path.basename(video_path))[0]
+#             out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
+
+#             try:
+#                 visualize_on_video(video_path, npy_path, out_path)
+#             except Exception as e:
+#                 print(f"Error in processing {video_path}: {e}")
+    
+#     with open(csv_path, newline='') as f:
+#         reader = csv.DictReader(f)
+#         os.makedirs(output_dir, exist_ok=True)
+#         # Create output CSV file to store video and skeleton paths
+#         # If it doesn't exist, create it
+#         output_csv_path = os.path.join(output_dir, 'skeleton_paths.csv' ) 
+#         os.makedirs(output_dir, exist_ok=True)
+#         with open(output_csv_path, 'w', newline='') as out_f:
+#             writer = csv.writer(out_f)
+#             writer.writerow(['video_path', 'skeleton_path', 'label'])
+#             for row in tqdm(reader, desc="Processing CSV for output"):
+#                 video_path = row['video_path']
+#                 npy_path = row['file_path']
+#                 label = row['label']
+
+#                 video_name = os.path.splitext(os.path.basename(video_path))[0]
+#                 out_path = os.path.join(output_dir, f"{video_name}_skeleton.mp4")
+
+#                 try:
+#                     writer.writerow([video_path, out_path, label])
+#                 except Exception as e:
+#                     print(f"Error in processing {video_path}: {e}")
             
 
 
-if __name__ == "__main__":
-    train_csv_path = config['input']['train_csv_path']
-    val_csv_path = config['input']['val_csv_path']
-    train_output_dir = config['output']['train_dir']
-    val_output_dir = config['output']['val_dir']
-    process_csv(train_csv_path, output_dir=train_output_dir)
-    process_csv(val_csv_path, output_dir=val_output_dir)
+# if __name__ == "__main__":
+#     train_csv_path = config['input']['train_csv_path']
+#     val_csv_path = config['input']['val_csv_path']
+#     train_output_dir = config['output']['train_dir']
+#     val_output_dir = config['output']['val_dir']
+#     process_csv(train_csv_path, output_dir=train_output_dir)
+#     process_csv(val_csv_path, output_dir=val_output_dir)

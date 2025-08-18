@@ -1,6 +1,7 @@
 import os
 import torch
 import pandas as pd
+import concurrent.futures
 import torchvision
 from torchvision.transforms import functional as F
 from tqdm import tqdm
@@ -38,10 +39,17 @@ def resize_clip(clip, size=(224, 224)):
 def get_video_id(path):
     return os.path.splitext(os.path.basename(path))[0]
 
-def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size=(224, 224)):
+def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size=(224, 224), device='cpu'):
     os.makedirs(output_dir, exist_ok=True)
     df = pd.read_csv(csv_path)
-
+    if not pd.api.types.is_integer_dtype(df['label']):
+        unique_labels = sorted(df['label'].unique())
+        label_to_int = {label: idx for idx, label in enumerate(unique_labels)}
+        df['label'] = df['label'].map(label_to_int)
+        print("Label mapping (string to int):")
+        for label, idx in label_to_int.items():
+            print(f"{label}: {idx}")
+        
     clip_idx_global = 0
     for row in tqdm(df.itertuples(), total=len(df), desc=f"[{split_name}] Processing videos"):
         video_path = row.video_path
@@ -51,12 +59,14 @@ def process_csv(csv_path, split_name, output_dir, num_frames=64, stride=32, size
         try:
             video, _, _ = torchvision.io.read_video(video_path, pts_unit='sec')
             video = video.permute(3, 0, 1, 2)  # C x T x H x W
+            video = video.to(device)
 
             clips = extract_clips(video, num_frames=num_frames, stride=stride)
 
             for clip_tensor, clip_idx in clips:
                 clip_tensor = resize_clip(clip_tensor, size)
                 # clip_tensor = normalize_clip(clip_tensor)
+                clip_tensor = clip_tensor.to('cpu')  # Move back to CPU before saving
 
                 save_data = {
                     'clip': clip_tensor,
@@ -76,17 +86,41 @@ if __name__ == "__main__":
     config = load_config()
     output_root = config['output_root']
     os.makedirs(output_root, exist_ok=True)
+    
+    num_gpus = torch.cuda.device_count()
+    devices = [f'cuda:{i}' for i in range(num_gpus)] if num_gpus > 0 else ['cpu']
 
-    for split_name, split_info in config['splits'].items():
+    splits = list(config['splits'].items())
+    def run_process(args):
+        split_name, split_info, device = args
         csv_file = split_info['csv_path']
         out_dir = os.path.join(output_root, split_name)
-
         process_csv(
             csv_path=csv_file,
             split_name=split_name,
             output_dir=out_dir,
             num_frames=config['video']['num_frames'],
             stride=config['video']['stride'],
-            size=tuple(config['video']['size'])
+            size=tuple(config['video']['size']),
+            device=device
         )
+    # for split_name, split_info in config['splits'].items():
+    #     csv_file = split_info['csv_path']
+    #     out_dir = os.path.join(output_root, split_name)
 
+    #     process_csv(
+    #         csv_path=csv_file,
+    #         split_name=split_name,
+    #         output_dir=out_dir,
+    #         num_frames=config['video']['num_frames'],
+    #         stride=config['video']['stride'],
+    #         size=tuple(config['video']['size']),
+    #         device=device
+    #     )
+    args_list = [
+        (split_name, split_info, devices[i % len(devices)])
+        for i, (split_name, split_info) in enumerate(splits)
+        ]
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=len(args_list)) as executor:
+        executor.map(run_process, args_list)

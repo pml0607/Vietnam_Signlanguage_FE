@@ -1,19 +1,19 @@
 paths:
-  train_dir: "preprocessed_segmented_clips/train"
-  val_dir: "preprocessed_segmented_clips/val"
-  log_dir: "runs/s3d_experiment_segmented"
-  best_model_path: "../Weight/best_s3d_model_segmented.pt"
+  train_dir: "/work/21013187/linh/Vietnam_Signlanguage_FE/S3D/Preprocessed_data/preprocessed_rgb_clips_120_classes/train"
+  val_dir: "/work/21013187/linh/Vietnam_Signlanguage_FE/S3D/Preprocessed_data/preprocessed_rgb_clips_120_classes/val"
+  log_dir: "runs/s3d_experiment_120_classes"
+  best_model_path: "/work/21013187/linh/Vietnam_Signlanguage_FE/Weight/S3D/best_s3d_model_120_classes_v2.pt"
 
 training:
   batch_size: 4
   epochs: 10
   learning_rate: 0.0001
-  num_classes: 15
-  freeze_until_layer: 12
+  num_classes: 120
+  freeze_until_layer: 10
 model:
   pretrained: true
   in_channels: 3  # Adjusted to match the input channels of your dataset
-  freeze_until_layer: 12
+  freeze_until_layer: 10
   
 dataloader:
   num_workers: 1

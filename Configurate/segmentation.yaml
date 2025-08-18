@@ -1,14 +1,14 @@
 segmentation:
   paths:
-    video_root: "/home/21013187/Vietnam_Signlanguage_FE/vietnamsignlanguage/mediapipe"
-    output_root: "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2"
+    video_root: "/work/21013187/SAM-SLR-v2/data/rgb_filtered"
+    output_root: "/work/21013187/SAM-SLR-v2/data/rgb_segmented_47classes"
 
   model:
     path: "/home/21013187/Vietnam_Signlanguage_FE/Ultralytics/yolo11l-seg.pt"
 
 add_bg:
   paths:
-    bitwised_root: "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2/bitwised"
-    mask_root: "/home/21013187/Vietnam_Signlanguage_FE/segmented_videos_v2/mask"
-    background_folder: "/home/21013187/Vietnam_Signlanguage_FE/Unsplash_Images"
-    output_root: "/home/21013187/Vietnam_Signlanguage_FE/person_with_backgrounds"
+    bitwised_root: "/work/21013187/SAM-SLR-v2/data/rgb_segmented_47classes/bitwised"
+    mask_root: "/work/21013187/SAM-SLR-v2/data/rgb_segmented_47classes/mask"
+    background_folder: "/work/21013187/linh/Vietnam_Signlanguage_FE/Unsplash_Images"
+    output_root: "/work/21013187/SAM-SLR-v2/data/person_with_backgrounds"
