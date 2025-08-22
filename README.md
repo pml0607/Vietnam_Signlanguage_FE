@@ -397,17 +397,6 @@ python validate.py \
     --config ../Configurate/validate.yaml
 ```
 
-## 🐛 Troubleshooting
-
-### Lỗi thường gặp
-
-1. **Missing model files**
-   ```bash
-   # Download required models
-   wget https://download.openmmlab.com/mmpose/pretrained/hrnet/...
-   ```
-
-
 
 ## 📚 Tài liệu tham khảo
 
