@@ -2,6 +2,7 @@ import os
 import json
 import time
 import uuid
+import shutil
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -35,6 +36,19 @@ class InferenceWatcher:
         self.cache_dir = Path(data_dir) / "cache"
         self.result_dir = Path(result_dir)
         self.result_dir.mkdir(exist_ok=True)
+        
+        # Tạo thư mục history
+        self.history_dir = Path(data_dir) / "history"
+        self.history_rgb_dir = self.history_dir / "rgb"
+        self.history_npy_dir = self.history_dir / "npy"
+        self.history_cache_dir = self.history_dir / "cache"
+        
+        # Tạo các thư mục nếu chưa tồn tại
+        self.history_dir.mkdir(exist_ok=True)
+        self.history_rgb_dir.mkdir(exist_ok=True)
+        self.history_npy_dir.mkdir(exist_ok=True)
+        self.history_cache_dir.mkdir(exist_ok=True)
+        
         self.data_dir = data_dir
         self.processed_pairs = set()
         self.processing_pairs = set()  
@@ -132,6 +146,39 @@ class InferenceWatcher:
         except Exception as e:
             print(f"[ERROR] Failed to generate RGB tensor: {e}")
     
+    def move_processed_files(self, pair_id):
+        """Di chuyển các file đã xử lý vào thư mục history"""
+        try:
+            # Đường dẫn file gốc
+            rgb_file = self.video_dir / f"{pair_id}.avi"
+            npy_file = self.landmark_dir / f"{pair_id}.npy"
+            cache_file = self.cache_dir / f"{pair_id}.npy"
+            
+            # Đường dẫn đích trong history
+            rgb_dest = self.history_rgb_dir / f"{pair_id}.avi"
+            npy_dest = self.history_npy_dir / f"{pair_id}.npy"
+            cache_dest = self.history_cache_dir / f"{pair_id}.npy"
+            
+            # Di chuyển file rgb nếu tồn tại
+            if rgb_file.exists():
+                shutil.move(str(rgb_file), str(rgb_dest))
+                print(f"[MOVE] Moved RGB file: {rgb_file} -> {rgb_dest}")
+            
+            # Di chuyển file npy nếu tồn tại
+            if npy_file.exists():
+                shutil.move(str(npy_file), str(npy_dest))
+                print(f"[MOVE] Moved NPY file: {npy_file} -> {npy_dest}")
+            
+            # Di chuyển file cache nếu tồn tại
+            if cache_file.exists():
+                shutil.move(str(cache_file), str(cache_dest))
+                print(f"[MOVE] Moved cache file: {cache_file} -> {cache_dest}")
+            
+            print(f"[MOVE] Successfully moved all files for pair: {pair_id}")
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to move files for pair {pair_id}: {e}")
+    
     def process_pair(self, pair_id):
         if pair_id in self.processing_pairs:
             return
@@ -178,6 +225,9 @@ class InferenceWatcher:
 
         print(f"[DONE] Result saved: {result_path}")
         print(f"[DONE] Processing time: {result['processing_time']:.2f}s")
+
+        # Di chuyển các file đã xử lý vào thư mục history
+        self.move_processed_files(pair_id)
 
         self.processed_pairs.add(pair_id)
         self.processing_pairs.discard(pair_id)
