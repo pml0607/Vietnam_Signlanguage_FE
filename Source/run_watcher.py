@@ -1,410 +1,471 @@
+#!/usr/bin/env python3
+"""
+SLURM-compatible watcher script using polling instead of filesystem events
+"""
+
 import os
-import json
+import sys
 import time
-import uuid
-import shutil
+import logging
 from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-import numpy as np
-import torch
-import cv2
 
-# Import model và utils
-from Transformer.rgb_landmark_v2.Model.model import VideoMAEForVideoClassification
-from transformers import TrainingArguments, Trainer
-from Source.data.dataset import get_dataset, collate_fn
-from Source.data.utils import get_label_map
-from Source.data.utils import video_loader, save_video_as_npy
-from torch.utils.data import Dataset
-from torchvision.transforms import Compose, Lambda, Resize
-from Transformer.rgb_landmark_v2.dataset.video_transforms import (
-    ApplyTransformToKey,
-    Normalize as VideoNormalize,
-    UniformTemporalSubsample,
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
-from Transformer.rgb_landmark_v2.dataset.landmark_transforms import (
-    Normalize as LandmarkNormalize,
-    UniformTemporalSubsample as LandmarkUniformTemporalSubsample,
-    Resize as LandmarkResize,
-)
+logger = logging.getLogger(__name__)
 
-class InferenceWatcher:
-    def __init__(self, data_dir, result_dir, model_ckpt_path, dataset_root_path):
-        self.video_dir = Path(data_dir) / "rgb"
-        self.landmark_dir = Path(data_dir) / "npy"
-        self.cache_dir = Path(data_dir) / "cache"
-        self.result_dir = Path(result_dir)
-        self.result_dir.mkdir(exist_ok=True)
-        
-        # Thêm lock cho inference
-        self.inference_lock = False  # Flag để kiểm soát watcher
-        
-        # Tạo thư mục history
-        self.history_dir = Path(data_dir) / "history"
-        self.history_rgb_dir = self.history_dir / "rgb"
-        self.history_npy_dir = self.history_dir / "npy"
-        self.history_cache_dir = self.history_dir / "cache"
-        
-        # Tạo các thư mục nếu chưa tồn tại
-        self.history_dir.mkdir(exist_ok=True)
-        self.history_rgb_dir.mkdir(exist_ok=True)
-        self.history_npy_dir.mkdir(exist_ok=True)
-        self.history_cache_dir.mkdir(exist_ok=True)
-        
-        self.data_dir = data_dir
-        self.processed_pairs = set()
-        self.processing_pairs = set()  
-        
-        # Load model và label mapping
-        self.model, self.trainer, self.id2label = self._load_model(model_ckpt_path, dataset_root_path)
-        
-        # Theo dõi cả 2 thư mục
-        self.video_observer = Observer()
-        self.landmark_observer = Observer()
-        
-        video_handler = FileHandler(self, 'video')
-        landmark_handler = FileHandler(self, 'landmark')
-        
-        self.video_observer.schedule(video_handler, str(self.video_dir), recursive=False)
-        self.landmark_observer.schedule(landmark_handler, str(self.landmark_dir), recursive=False)
-        
-        print(f"[INIT] Inference Watcher with VideoMAE model initialized")
-        print(f"[INIT] Video dir: {self.video_dir}")
-        print(f"[INIT] Landmark dir: {self.landmark_dir}")
-        print(f"[INIT] Data dir: {self.data_dir}")
-        print(f"[INIT] Result dir: {result_dir}")
-        print(f"[INIT] Model loaded with {len(self.id2label)} classes")
+# Force unbuffered output
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
+def run_combined_polling_system():
+    """Run both watchers using unified polling system"""
     
-    def _load_model(self, model_ckpt_path, dataset_root_path):   
-        dataset_root_path = Path(dataset_root_path)
-        label2id, id2label = get_label_map(dataset_root_path)
-        # Load model
-        model = VideoMAEForVideoClassification.from_pretrained(
-            model_ckpt_path,
-            label2id=label2id,
-            id2label=id2label,
-            ignore_mismatched_sizes=True
+    logger.info("=== Starting Combined Polling Watcher System ===")
+    logger.info(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
+    
+    try:
+        # Import watcher classes
+        logger.info("Importing watcher modules...")
+        from Watcher_Landmark import LandmarkWatcher
+        from Watcher_Inference import InferenceWatcher
+        
+        # Initialize landmark watcher (for GPU processing)
+        logger.info("Initializing Landmark Watcher...")
+        landmark_watcher = LandmarkWatcher(
+            input_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data/rgb",
+            output_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data/npy",
+            config_path="/work/21013187/phuoc/visl-i3d/src/config/wholebody_w48_384x288.yaml",
+            checkpoint_path="/work/21013187/phuoc/visl-i3d/src/checkpoint/hrnet_w48_coco_wholebody_384x288-6e061c6a_20200922.pth"
         )
         
-        # Setup trainer for inference
-        args = TrainingArguments(
-            output_dir="./tmp_inference",
-            per_device_eval_batch_size= 20,  
-            dataloader_drop_last=False,
-            remove_unused_columns=False,
-            report_to="none",
+        # Initialize inference watcher (for GPU processing)  
+        logger.info("Initializing Inference Watcher...")
+        inference_watcher = InferenceWatcher(
+            data_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data",
+            result_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/results",
+            model_ckpt_path="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Transformer/rgb_landmark_v2/videomae-base-finetuned_47classes/checkpoint-330",
+            dataset_root_path="/work/21013187/SAM-SLR-v2/data/person_with_backgrounds"
         )
         
-        trainer = Trainer(
-            model=model,
-            args=args,
-            data_collator=collate_fn,
+        logger.info("Both watchers initialized successfully")
+        
+        # Start proper multi-threaded polling system
+        logger.info("Starting multi-threaded polling system...")
+        
+        import threading
+        
+        # Thread 1: LandmarkWatcher polls video directory
+        landmark_thread = threading.Thread(
+            target=poll_video_directory_for_landmarks,
+            args=(landmark_watcher,),
+            name="LandmarkGeneration",
+            daemon=True
         )
         
-        return model, trainer, id2label
-    
-    # def on_file_created(self, file_type):
-    #     """Được gọi khi có file mới được tạo"""
-    #     print(f"[EVENT] New {file_type} file detected, checking for pairs...")
-    #     self.check_and_process_pairs()
-    
-    # def check_and_process_pairs(self):
-    #     """Kiểm tra và xử lý các cặp {video, landmark} hoàn chỉnh - chỉ xử lý 1 cặp mới nhất"""
-    #     try:
-    #         # Lấy danh sách file (không có extension)
-    #         video_files = {f.stem for f in self.cache_dir.glob('*.npy') if f.is_file()}
-    #         landmark_files = {f.stem for f in self.landmark_dir.glob('*.npy') if f.is_file()}
-            
-    #         # Tìm các cặp hoàn chỉnh chưa được xử lý
-    #         complete_pairs = video_files & landmark_files
-    #         new_pairs = complete_pairs - self.processed_pairs - self.processing_pairs
-            
-    #         if new_pairs:
-    #             for pair_id in new_pairs:
-    #                 landmark_path = self.landmark_dir / f"{pair_id}.npy"
-    #                 try:
-    #                     landmark_data = np.load(landmark_path)
-    #                     print(f"[SHAPE CHECK] {pair_id}: {landmark_data.shape}")
-    #                 except Exception as e:
-    #                     print(f"[ERROR] Could not load landmark {pair_id}: {e}")
-    #             # Chỉ xử lý 1 cặp mới nhất (theo thời gian tạo file)
-    #             latest_pair = max(new_pairs, key=lambda x: max(
-    #                 (self.video_dir / f"{x}.avi").stat().st_mtime,
-    #                 (self.landmark_dir / f"{x}.npy").stat().st_mtime
-    #             ))
-                
-    #             print(f"[PAIR] Processing latest pair: {latest_pair}")
-    #             self.process_pair(latest_pair)
-            
-    #     except Exception as e:
-    #         print(f"[ERROR] Error checking pairs: {e}")
-    
-    def generate_rgb_cache(self, video_path: Path):
-        try:
-            tensor = video_loader(video_path)
-            cache_path = self.cache_dir / f"{video_path.stem}.npy"
-            save_video_as_npy(tensor, cache_path)
-            print(f"[CACHE] Saved RGB tensor to: {cache_path}")
-        except Exception as e:
-            print(f"[ERROR] Failed to generate RGB tensor: {e}")
-    
-    def move_processed_files(self, pair_id):
-        """Di chuyển các file đã xử lý vào thư mục history"""
-        try:
-            # Chuẩn bị danh sách các file cần di chuyển
-            files_to_move = [
-                (self.video_dir / f"{pair_id}.avi", self.history_rgb_dir / f"{pair_id}.avi"),
-                (self.landmark_dir / f"{pair_id}.npy", self.history_npy_dir / f"{pair_id}.npy"),
-                (self.cache_dir / f"{pair_id}.npy", self.history_cache_dir / f"{pair_id}.npy")
-            ]
-            
-            # Di chuyển tất cả các file tồn tại một lần
-            for src, dest in files_to_move:
-                if src.exists():
-                    shutil.move(str(src), str(dest))
-            
-        except Exception as e:
-            print(f"[ERROR] Failed to move files for pair {pair_id}: {e}")
-    
-    def process_pair(self, pair_id):
-        if pair_id in self.processing_pairs or self.inference_lock:
-            return
-
-        self.inference_lock = True
-        self.processing_pairs.add(pair_id)
-
-        try:
-            video_path = self.cache_dir / f"{pair_id}.npy"         # RGB tensor
-            landmark_path = self.landmark_dir / f"{pair_id}.npy"   # Landmark tensor
-            result_path = self.result_dir / f"{pair_id}.json"
-
-            # Kiểm tra nhanh tất cả điều kiện cần thiết
-            if not all(p.exists() for p in [video_path, landmark_path]) or result_path.exists():
-                return
-
-            print(f"[PROCESSING] Starting inference for pair: {pair_id}")
-            start_time = time.time()
-
-            # Load landmarks và chạy inference
-            landmarks = np.load(landmark_path)
-            result = self.run_inference(self.data_dir, video_path)
-
-            # Cập nhật kết quả
-            result.update({
-                "processing_time": time.time() - start_time,
-                "timestamp": time.time(),
-                "video_tensor_file": str(video_path.name),
-                "landmark_file": str(landmark_path.name),
-                "landmark_shape": list(landmarks.shape)
-            })
-
-            # Lưu kết quả
-            with open(result_path, 'w', encoding='utf-8') as f:
-                json.dump(result, f, indent=2, ensure_ascii=False)
-
-            print(f"[DONE] Result saved: {result_path} (time: {result['processing_time']:.2f}s)")
-
-            # Di chuyển files
-            self.move_processed_files(pair_id)
-            self.processed_pairs.add(pair_id)
-
-        except Exception as e:
-            print(f"[ERROR] Failed to process pair {pair_id}: {e}")
+        # Thread 2: InferenceWatcher polls video directory for cache generation
+        cache_thread = threading.Thread(
+            target=poll_video_directory_for_cache,
+            args=(inference_watcher,),
+            name="CacheGeneration", 
+            daemon=True
+        )
         
-        finally:
-            self.processing_pairs.discard(pair_id)
-            self.inference_lock = False
-    
-    def run_inference(self, data_path, video_path):
-        """
-        Chạy VideoMAE model để dự đoán sign language trên một batch chứa toàn bộ video
+        # Thread 3: InferenceWatcher polls landmark directory for inference
+        inference_thread = threading.Thread(
+            target=poll_landmark_directory_for_inference,
+            args=(inference_watcher,),
+            name="InferenceExecution",
+            daemon=True
+        )
         
-        Args:
-            data_path (str): Đường dẫn đến data file
-            
-        Returns:
-            dict: Kết quả inference tổng hợp từ batch
-        """
-        try:
-
-            dataset = self._prepare_video_data(data_path)
-            outputs = self.trainer.predict(dataset)
-            y_pred = np.argmax(outputs.predictions, axis=1)
-            label_id = int(y_pred[0])
-            label_name = self.id2label[label_id]
-
-            
-            # Tổng hợp kết quả bằng voting
-            if not y_pred:
-                return {
-                    "id": video_path.stem,
-                    "status": "error",
-                    "error": "No predictions generated"
-                }
-            
-            result = {
-                "id": video_path.stem,
-                "status": "completed",
-                "prediction": {
-                    "class_id": label_id,
-                    "class_name": label_name
-                }
-            }
-
-            
-            return result
+        # Start all threads
+        landmark_thread.start()
+        cache_thread.start() 
+        inference_thread.start()
         
-        except Exception as e:
-            print(f"[ERROR] Inference failed: {e}")
-            return {
-                "id": video_path.stem,
-                "status": "error",
-                "error": str(e)
-            }
+        logger.info("All polling threads started")
+        logger.info("Press Ctrl+C to stop...")
         
-    def _prepare_video_data(self, data_path):
-        try:
-            dataset = get_dataset(data_path)
-            print(f"[DEBUG] Dataset loaded: {type(dataset)}")
-            return dataset
-        
-        except Exception as e:
-            print(f"[ERROR] Failed to prepare video data: {e}")
-            return None
-            
-    @staticmethod
-    def get_inference_transform(img_size=(224, 224), mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5], num_frames=16):
-        return Compose([
-            UniformTemporalSubsample(num_frames),
-            ApplyTransformToKey(
-                key="video",
-                transform=Compose([
-                    Lambda(lambda x: x / 255.0),
-                    VideoNormalize(mean, std),
-                    Resize(img_size),
-                ])
-            ),
-            ApplyTransformToKey(
-                key="landmark",
-                transform=Compose([
-                    LandmarkNormalize(mean=(0, 0, 0), std=(1, 1, 1)),
-                    LandmarkUniformTemporalSubsample(num_frames),
-                    LandmarkResize(size=img_size, original_size=(256, 256)),
-                ])
-            ),
-        ])
-        
-    def start(self):
-        """Bắt đầu theo dõi"""
-        print("[START] Starting Inference Watcher...")
-        
-        # # Xử lý các cặp file có sẵn
-        # print("[START] Processing existing pairs...")
-        # self.check_and_process_pairs()
-        
-        # Bắt đầu theo dõi
-        self.video_observer.start()
-        self.landmark_observer.start()
-        
-        print("[WATCH] Watching for new files...")
-        
+        # Keep main thread alive and monitor
         try:
             while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            self.stop()
-    
-    def stop(self):
-        """Dừng theo dõi"""
-        print("[STOP] Stopping inference watcher...")
-        self.video_observer.stop()
-        self.landmark_observer.stop()
-        self.video_observer.join()
-        self.landmark_observer.join()
-        print("[STOP] Inference watcher stopped")
-
-class FileHandler(FileSystemEventHandler):
-    def __init__(self, watcher, file_type):
-        self.watcher = watcher
-        self.file_type = file_type
-    
-    def on_created(self, event):
-        if event.is_directory:
-            return
-            
-        file_path = Path(event.src_path)
-        
-        # Kiểm tra extension
-        if not ((self.file_type == 'video' and file_path.suffix == '.avi') or \
-                (self.file_type == 'landmark' and file_path.suffix == '.npy')):
-            return
-            
-        print(f"[EVENT] New {self.file_type} file: {file_path.name}")
-        
-        # Sử dụng retry pattern thay vì sleep cố định
-        max_retries = 3
-        retry_delay = 0.1
-        
-        for attempt in range(max_retries):
-            try:
-                if self.file_type == 'video':
-                    # Kiểm tra video có mở được không
-                    import cv2
-                    cap = cv2.VideoCapture(str(file_path))
-                    if cap.isOpened():
-                        cap.release()
-                        self.watcher.generate_rgb_cache(file_path)
-                        break
-                    cap.release()
-                        
-                elif self.file_type == 'landmark':
-                    # Kiểm tra npy file có load được không
-                    np.load(str(file_path))
-                    pair_id = file_path.stem
-                    self.watcher.process_pair(pair_id)
+                time.sleep(10)
+                
+                # Check thread health
+                threads_status = {
+                    "LandmarkGeneration": landmark_thread.is_alive(),
+                    "CacheGeneration": cache_thread.is_alive(), 
+                    "InferenceExecution": inference_thread.is_alive()
+                }
+                
+                for name, alive in threads_status.items():
+                    status = "🟢 Running" if alive else "🔴 Stopped"
+                    logger.info(f"[MONITOR] {name}: {status}")
+                
+                # Break if any critical thread died
+                if not all(threads_status.values()):
+                    logger.error("One or more threads died!")
                     break
                     
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    print(f"[ERROR] Failed to process file after {max_retries} attempts: {file_path} - {e}")
-                else:
-                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+        except KeyboardInterrupt:
+            logger.info("Received interrupt signal...")
+            
+    except Exception as e:
+        logger.error(f"Failed to start combined polling system: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
-def start_inference_watcher(data_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data", 
-                           result_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/results",
-                           model_ckpt_path="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Transformer/rgb_landmark_v2/videomae-base-finetuned_47classes/checkpoint-330",
-                           dataset_root_path="/work/21013187/SAM-SLR-v2/data/person_with_backgrounds"):
-    """
-    Khởi động inference watcher với VideoMAE model
+def run_single_watcher():
+    """Run single watcher with polling based on environment variable"""
+    watcher_type = os.environ.get('WATCHER_TYPE', '').lower()
     
-    Args:
-        video_dir: Thư mục chứa video files
-        landmark_dir: Thư mục chứa landmark files (.npy)
-        result_dir: Thư mục lưu kết quả JSON
-        model_ckpt_path: Đường dẫn đến checkpoint của VideoMAE model
-        dataset_root_path: Đường dẫn đến dataset để load label mapping
-    """
+    logger.info(f"=== Starting Single Watcher: {watcher_type.upper()} ===")
+    logger.info(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
     
-    # Kiểm tra model checkpoint tồn tại
-    if not os.path.exists(model_ckpt_path):
-        raise FileNotFoundError(f"Model checkpoint not found: {model_ckpt_path}")
+    if watcher_type == 'landmark':
+        run_landmark_polling()
+    elif watcher_type == 'inference':
+        run_inference_polling()
+    else:
+        logger.error(f"Unknown watcher type: {watcher_type}")
+        logger.error("Valid types: landmark, inference")
+        sys.exit(1)
+
+def run_landmark_polling():
+    """Run landmark watcher with polling"""
+    logger.info("Starting LANDMARK watcher with polling...")
     
-    if not os.path.exists(dataset_root_path):
-        raise FileNotFoundError(f"Dataset root path not found: {dataset_root_path}")
+    try:
+        from Watcher_Landmark import LandmarkWatcher
+        
+        # Initialize watcher - KHÔNG start filesystem watching
+        watcher = LandmarkWatcher(
+            input_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data/rgb",
+            output_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data/npy",
+            config_path="/work/21013187/phuoc/visl-i3d/src/config/wholebody_w48_384x288.yaml",
+            checkpoint_path="/work/21013187/phuoc/visl-i3d/src/checkpoint/hrnet_w48_coco_wholebody_384x288-6e061c6a_20200922.pth"
+        )
+        
+        logger.info("Landmark watcher initialized successfully")
+        
+        # Start polling THAY VÌ filesystem watching
+        poll_video_directory_for_landmarks(watcher)
+        
+    except Exception as e:
+        logger.error(f"Landmark watcher failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+def run_inference_polling():
+    """Run inference watcher with polling - watches BOTH video and landmark directories"""
+    logger.info("Starting INFERENCE watcher with dual directory polling...")
     
-    print(f"[START] Starting VideoMAE Inference Watcher...")
-    print(f"[START] Model checkpoint: {model_ckpt_path}")
-    print(f"[START] Dataset root: {dataset_root_path}")
+    try:
+        from Watcher_Inference import InferenceWatcher
+        
+        # Initialize watcher
+        watcher = InferenceWatcher(
+            data_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data",
+            result_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/results",
+            model_ckpt_path="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Transformer/rgb_landmark_v2/videomae-base-finetuned_47classes/checkpoint-330",
+            dataset_root_path="/work/21013187/SAM-SLR-v2/data/person_with_backgrounds"
+        )
+        
+        logger.info("Inference watcher initialized successfully")
+        
+        # Start BOTH polling threads for InferenceWatcher
+        import threading
+        
+        # Thread 1: Poll video directory for cache generation
+        cache_thread = threading.Thread(
+            target=poll_video_directory_for_cache,
+            args=(watcher,),
+            name="VideoCachePolling",
+            daemon=True
+        )
+        
+        # Thread 2: Poll landmark directory for inference execution
+        inference_thread = threading.Thread(
+            target=poll_landmark_directory_for_inference,
+            args=(watcher,),
+            name="LandmarkInferencePolling",
+            daemon=True
+        )
+        
+        # Start both threads
+        cache_thread.start()
+        inference_thread.start()
+        
+        logger.info("Both InferenceWatcher polling threads started")
+        logger.info("- Video directory polling (for cache generation)")
+        logger.info("- Landmark directory polling (for inference execution)")
+        
+        # Keep main thread alive and monitor
+        try:
+            # Track previous states
+            prev_cache_alive = True
+            prev_inference_alive = True
+            health_check_interval = 60  # Check every 60 seconds
+            last_check_time = time.time()
+
+            while True:
+                time.sleep(10)
+                
+                current_time = time.time()
+                if current_time - last_check_time >= health_check_interval:
+                    # Check thread health
+                    cache_alive = cache_thread.is_alive()
+                    inference_alive = inference_thread.is_alive()
+                    
+                    # Only log if state changed
+                    if cache_alive != prev_cache_alive:
+                        logger.info(f"[MONITOR] VideoCachePolling: {'🟢 Running' if cache_alive else '🔴 Stopped'}")
+                        prev_cache_alive = cache_alive
+                        
+                    if inference_alive != prev_inference_alive:
+                        logger.info(f"[MONITOR] LandmarkInferencePolling: {'🟢 Running' if inference_alive else '🔴 Stopped'}")
+                        prev_inference_alive = inference_alive
+                    
+                    # Break if any thread died
+                    if not cache_alive or not inference_alive:
+                        logger.error("One or more inference polling threads died!")
+                        break
+                        
+                    last_check_time = current_time
+                    
+        except KeyboardInterrupt:
+            logger.info("Stopping inference polling...")
+        
+    except Exception as e:
+        logger.error(f"Inference watcher failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+def poll_video_directory_for_landmarks(landmark_watcher, poll_interval=3):
+    """Poll video directory for landmark generation"""
+    video_dir = Path(landmark_watcher.input_dir)
+    processed_videos = set()
     
-    watcher = InferenceWatcher(data_dir, result_dir, model_ckpt_path, dataset_root_path)
-    watcher.start()
+    logger.info(f"[LANDMARK GEN] Watching video dir: {video_dir}")
+    
+    # Scan existing files
+    if video_dir.exists():
+        for video_file in video_dir.glob("*.avi"):
+            processed_videos.add(video_file.stem)
+    
+    logger.info(f"[LANDMARK GEN] Found {len(processed_videos)} existing videos")
+    
+    while True:
+        try:
+            if not video_dir.exists():
+                time.sleep(poll_interval)
+                continue
+                
+            # Get current video files
+            current_videos = {f.stem for f in video_dir.glob("*.avi") if f.is_file()}
+            new_videos = current_videos - processed_videos
+            
+            if new_videos:
+                logger.info(f"[LANDMARK GEN] Found {len(new_videos)} new videos: {list(new_videos)}")
+                
+                for video_id in new_videos:
+                    video_path = video_dir / f"{video_id}.avi"
+                    
+                    logger.info(f"[LANDMARK GEN] Processing: {video_id}")
+                    
+                    if wait_for_file_complete(video_path, 'video'):
+                        try:
+                            landmark_watcher.process_video(str(video_path))
+                            processed_videos.add(video_id)
+                            logger.info(f"[LANDMARK GEN] ✅ Landmarks generated: {video_id}")
+                        except Exception as e:
+                            logger.error(f"[LANDMARK GEN] ❌ Failed {video_id}: {e}")
+                    else:
+                        logger.warning(f"[LANDMARK GEN] ⚠️ Video not ready: {video_id}")
+            
+            time.sleep(poll_interval)
+            
+        except Exception as e:
+            logger.error(f"[LANDMARK GEN] Error: {e}")
+            time.sleep(poll_interval)
+
+def poll_video_directory_for_cache(inference_watcher, poll_interval=3):
+    """Poll video directory for RGB cache generation"""
+    video_dir = Path(inference_watcher.video_dir)
+    cache_dir = Path(inference_watcher.cache_dir)
+    processed_cache = set()
+    
+    logger.info(f"[CACHE GEN] Watching video dir: {video_dir}")
+    logger.info(f"[CACHE GEN] Cache dir: {cache_dir}")
+    
+    # Ensure cache directory exists
+    cache_dir.mkdir(exist_ok=True)
+    
+    # Scan existing cache files
+    if cache_dir.exists():
+        for cache_file in cache_dir.glob("*.npy"):
+            processed_cache.add(cache_file.stem)
+    
+    logger.info(f"[CACHE GEN] Found {len(processed_cache)} existing cache files")
+    
+    while True:
+        try:
+            if not video_dir.exists():
+                time.sleep(poll_interval)
+                continue
+                
+            # Get current video files
+            current_videos = {f.stem for f in video_dir.glob("*.avi") if f.is_file()}
+            uncached_videos = current_videos - processed_cache
+            
+            if uncached_videos:
+                logger.info(f"[CACHE GEN] Found {len(uncached_videos)} uncached videos: {list(uncached_videos)}")
+                
+                for video_id in uncached_videos:
+                    video_path = video_dir / f"{video_id}.avi"
+                    
+                    logger.info(f"[CACHE GEN] Processing: {video_id}")
+                    
+                    if wait_for_file_complete(video_path, 'video'):
+                        try:
+                            inference_watcher.generate_rgb_cache(video_path)
+                            processed_cache.add(video_id)
+                            logger.info(f"[CACHE GEN] ✅ RGB cache generated: {video_id}")
+                        except Exception as e:
+                            logger.error(f"[CACHE GEN] ❌ Failed {video_id}: {e}")
+                    else:
+                        logger.warning(f"[CACHE GEN] ⚠️ Video not ready: {video_id}")
+            
+            time.sleep(poll_interval)
+            
+        except Exception as e:
+            logger.error(f"[CACHE GEN] Error: {e}")
+            time.sleep(poll_interval)
+
+def poll_landmark_directory_for_inference(inference_watcher, poll_interval=3):
+    """Poll landmark directory for inference execution"""
+    landmark_dir = Path(inference_watcher.landmark_dir)
+    cache_dir = Path(inference_watcher.cache_dir)
+    result_dir = Path(inference_watcher.result_dir)
+    processed_inference = set()
+    
+    logger.info(f"[INFERENCE] Watching landmark dir: {landmark_dir}")
+    logger.info(f"[INFERENCE] Cache dir: {cache_dir}")
+    logger.info(f"[INFERENCE] Result dir: {result_dir}")
+    
+    # Scan existing result files
+    if result_dir.exists():
+        for result_file in result_dir.glob("*.json"):
+            processed_inference.add(result_file.stem)
+    
+    logger.info(f"[INFERENCE] Found {len(processed_inference)} existing results")
+    
+    while True:
+        try:
+            if not landmark_dir.exists():
+                time.sleep(poll_interval)
+                continue
+                
+            # Get current landmark files
+            current_landmarks = {f.stem for f in landmark_dir.glob("*.npy") if f.is_file()}
+            new_landmarks = current_landmarks - processed_inference
+            
+            if new_landmarks:
+                logger.info(f"[INFERENCE] Found {len(new_landmarks)} new landmarks: {list(new_landmarks)}")
+                
+                for landmark_id in new_landmarks:
+                    landmark_path = landmark_dir / f"{landmark_id}.npy"
+                    cache_path = cache_dir / f"{landmark_id}.npy"
+                    
+                    logger.info(f"[INFERENCE] Checking pair: {landmark_id}")
+                    
+                    # Check if both landmark and cache files exist and are ready
+                    if (wait_for_file_complete(landmark_path, 'landmark') and 
+                        cache_path.exists() and 
+                        wait_for_file_complete(cache_path, 'cache')):
+                        
+                        logger.info(f"[INFERENCE] Processing pair: {landmark_id}")
+                        
+                        try:
+                            inference_watcher.process_pair(landmark_id)
+                            processed_inference.add(landmark_id)
+                            logger.info(f"[INFERENCE] ✅ Inference completed: {landmark_id}")
+                        except Exception as e:
+                            logger.error(f"[INFERENCE] ❌ Failed {landmark_id}: {e}")
+                    else:
+                        logger.info(f"[INFERENCE] ⏳ Waiting for cache: {landmark_id}")
+            
+            time.sleep(poll_interval)
+            
+        except Exception as e:
+            logger.error(f"[INFERENCE] Error: {e}")
+            time.sleep(poll_interval)
+
+def wait_for_file_complete(file_path, file_type='unknown', stable_time=2, max_wait=30):
+    """Wait for file to be completely written"""
+    import cv2
+    import numpy as np
+    
+    start_time = time.time()
+    
+    while time.time() - start_time < max_wait:
+        try:
+            if not file_path.exists():
+                return False
+                
+            initial_size = file_path.stat().st_size
+            time.sleep(stable_time)
+            
+            if not file_path.exists():
+                return False
+                
+            final_size = file_path.stat().st_size
+            
+            if initial_size == final_size and final_size > 0:
+                # Additional validation based on file type
+                if file_type == 'video':
+                    cap = cv2.VideoCapture(str(file_path))
+                    if cap.isOpened():
+                        ret, frame = cap.read()
+                        cap.release()
+                        return ret and frame is not None
+                elif file_type in ['landmark', 'cache']:
+                    try:
+                        data = np.load(str(file_path))
+                        return len(data) > 0
+                    except:
+                        return False
+                        
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error checking file {file_path}: {e}")
+            
+        time.sleep(1)
+    
+    return False
+
+def main():
+    logger.info("=== SLURM Polling Watcher Starting ===")
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Working directory: {os.getcwd()}")
+    
+    # Check if running single watcher or combined system
+    watcher_type = os.environ.get('WATCHER_TYPE', '').lower()
+    
+    if watcher_type in ['landmark', 'inference']:
+        logger.info(f"Running single watcher mode: {watcher_type}")
+        run_single_watcher()
+    else:
+        logger.info("Running combined watcher mode")
+        run_combined_polling_system()
 
 if __name__ == "__main__":
-    # Cập nhật đường dẫn theo môi trường của bạn
-    start_inference_watcher(
-        data_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data",
-        result_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/results",
-        model_ckpt_path="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Transformer/rgb_landmark_v2/videomae-base-finetuned_47classes/checkpoint-330",
-        dataset_root_path="/work/21013187/SAM-SLR-v2/data/person_with_backgrounds"
-    )
+    main()
