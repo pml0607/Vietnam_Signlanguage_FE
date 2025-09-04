@@ -7,6 +7,7 @@ from pathlib import Path
 from collections import OrderedDict
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from tqdm import tqdm
 
 # Import từ file gốc
 from model.pose_hrnet import get_pose_net
@@ -16,16 +17,29 @@ from utils.skeleton import (
 )
 
 def check_gpu_status():
-    print(f"[GPU DEBUG] CUDA available: {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        print(f"[GPU DEBUG] Current device: {torch.cuda.current_device()}")
-        print(f"[GPU DEBUG] Device name: {torch.cuda.get_device_name()}")
-        print(f"[GPU DEBUG] Device count: {torch.cuda.device_count()}")
-        print(f"[GPU DEBUG] Memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
-        print(f"[GPU DEBUG] Memory cached: {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
+    import logging
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:
+        logging.basicConfig(
+            level=logging.WARNING,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('landmark_watcher.log'),
+                logging.StreamHandler()
+            ]
+        )
     
-    import os
-    print(f"[GPU DEBUG] CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"CUDA available: {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            logger.debug(f"Current device: {torch.cuda.current_device()}")
+            logger.debug(f"Device name: {torch.cuda.get_device_name()}")
+            logger.debug(f"Device count: {torch.cuda.device_count()}")
+            logger.debug(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+            logger.debug(f"Memory cached: {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
+        
+        import os
+        logger.debug(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
     
 # Gọi hàm này trong __init__ của LandmarkWatcher
 check_gpu_status()
@@ -154,19 +168,28 @@ class LandmarkWatcher(FileSystemEventHandler):
             raise ValueError(f"Cannot open video: {video_path}")
             
         output_list = []
-        frame_count = 0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
         # Kiểm tra device
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print(f"[INFERENCE] Using device: {device}")
         
         with torch.no_grad():
+            # Tạo progress bar với tqdm
+            pbar = tqdm(total=total_frames,
+                       desc=f"Processing {os.path.basename(video_path)}",
+                       unit="frames",
+                       dynamic_ncols=True,
+                       position=0,
+                       leave=True)
+            
             while cap.isOpened():
                 success, img = cap.read()
                 if not success:
                     break
-
-                frame_count += 1
+                
+                # Update progress bar
+                pbar.update(1)
                 
                 # Resize một lần cho tất cả scales
                 img_256 = cv2.resize(img, (256, 256))
@@ -194,7 +217,7 @@ class LandmarkWatcher(FileSystemEventHandler):
                     img_tensor = img_tensor.to(device)
                     
                     # Forward pass
-                    with torch.cuda.amp.autocast():  # Sử dụng mixed precision
+                    with torch.amp.autocast('cuda'):  # Sử dụng mixed precision
                         hms = self.model(img_tensor)
                     
                     # Resize heatmap về size chuẩn
@@ -234,12 +257,13 @@ class LandmarkWatcher(FileSystemEventHandler):
 
                 output_list.append(pred)
                 
-                # Log progress và memory usage
-                if frame_count % 30 == 0:
-                    print(f"[PROGRESS] Processed {frame_count} frames...")
-                    if torch.cuda.is_available():
-                        print(f"[MEMORY] GPU memory: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+                # Update progress bar với thông tin GPU memory
+                if torch.cuda.is_available():
+                    gpu_mem = torch.cuda.memory_allocated() / 1024**3
+                    pbar.set_description(f"Processing {os.path.basename(video_path)} - GPU: {gpu_mem:.2f}GB")
 
+        # Đóng progress bar và video capture
+        pbar.close()
         cap.release()
         
         # Clear GPU cache

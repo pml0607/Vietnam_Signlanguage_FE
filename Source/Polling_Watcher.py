@@ -6,6 +6,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+# Configure logging
+logging.basicConfig(
+    level=logging.WARNING,  # Chỉ log các warning trở lên
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('polling_watcher.log'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 class PollingWatcher:

@@ -37,6 +37,9 @@ class InferenceWatcher:
         self.result_dir = Path(result_dir)
         self.result_dir.mkdir(exist_ok=True)
         
+        # Thêm lock cho inference
+        self.inference_lock = False  # Flag để kiểm soát watcher
+        
         # Tạo thư mục history
         self.history_dir = Path(data_dir) / "history"
         self.history_rgb_dir = self.history_dir / "rgb"
@@ -149,88 +152,69 @@ class InferenceWatcher:
     def move_processed_files(self, pair_id):
         """Di chuyển các file đã xử lý vào thư mục history"""
         try:
-            # Đường dẫn file gốc
-            rgb_file = self.video_dir / f"{pair_id}.avi"
-            npy_file = self.landmark_dir / f"{pair_id}.npy"
-            cache_file = self.cache_dir / f"{pair_id}.npy"
+            # Chuẩn bị danh sách các file cần di chuyển
+            files_to_move = [
+                (self.video_dir / f"{pair_id}.avi", self.history_rgb_dir / f"{pair_id}.avi"),
+                (self.landmark_dir / f"{pair_id}.npy", self.history_npy_dir / f"{pair_id}.npy"),
+                (self.cache_dir / f"{pair_id}.npy", self.history_cache_dir / f"{pair_id}.npy")
+            ]
             
-            # Đường dẫn đích trong history
-            rgb_dest = self.history_rgb_dir / f"{pair_id}.avi"
-            npy_dest = self.history_npy_dir / f"{pair_id}.npy"
-            cache_dest = self.history_cache_dir / f"{pair_id}.npy"
-            
-            # Di chuyển file rgb nếu tồn tại
-            if rgb_file.exists():
-                shutil.move(str(rgb_file), str(rgb_dest))
-                print(f"[MOVE] Moved RGB file: {rgb_file} -> {rgb_dest}")
-            
-            # Di chuyển file npy nếu tồn tại
-            if npy_file.exists():
-                shutil.move(str(npy_file), str(npy_dest))
-                print(f"[MOVE] Moved NPY file: {npy_file} -> {npy_dest}")
-            
-            # Di chuyển file cache nếu tồn tại
-            if cache_file.exists():
-                shutil.move(str(cache_file), str(cache_dest))
-                print(f"[MOVE] Moved cache file: {cache_file} -> {cache_dest}")
-            
-            print(f"[MOVE] Successfully moved all files for pair: {pair_id}")
+            # Di chuyển tất cả các file tồn tại một lần
+            for src, dest in files_to_move:
+                if src.exists():
+                    shutil.move(str(src), str(dest))
             
         except Exception as e:
             print(f"[ERROR] Failed to move files for pair {pair_id}: {e}")
     
     def process_pair(self, pair_id):
-        if pair_id in self.processing_pairs:
+        if pair_id in self.processing_pairs or self.inference_lock:
             return
 
+        self.inference_lock = True
         self.processing_pairs.add(pair_id)
 
-        video_path = self.cache_dir / f"{pair_id}.npy"         # RGB tensor
-        landmark_path = self.landmark_dir / f"{pair_id}.npy"   # Landmark tensor
-        result_path = self.result_dir / f"{pair_id}.json"
+        try:
+            video_path = self.cache_dir / f"{pair_id}.npy"         # RGB tensor
+            landmark_path = self.landmark_dir / f"{pair_id}.npy"   # Landmark tensor
+            result_path = self.result_dir / f"{pair_id}.json"
 
-        if not video_path.exists():
-            print(f"[ERROR] RGB cache not found: {video_path}")
-            self.processing_pairs.discard(pair_id)
-            return
+            # Kiểm tra nhanh tất cả điều kiện cần thiết
+            if not all(p.exists() for p in [video_path, landmark_path]) or result_path.exists():
+                return
 
-        if not landmark_path.exists():
-            print(f"[ERROR] Landmark file not found: {landmark_path}")
-            self.processing_pairs.discard(pair_id)
-            return
+            print(f"[PROCESSING] Starting inference for pair: {pair_id}")
+            start_time = time.time()
 
-        if result_path.exists():
-            print(f"[SKIP] Result already exists: {result_path}")
+            # Load landmarks và chạy inference
+            landmarks = np.load(landmark_path)
+            result = self.run_inference(self.data_dir, video_path)
+
+            # Cập nhật kết quả
+            result.update({
+                "processing_time": time.time() - start_time,
+                "timestamp": time.time(),
+                "video_tensor_file": str(video_path.name),
+                "landmark_file": str(landmark_path.name),
+                "landmark_shape": list(landmarks.shape)
+            })
+
+            # Lưu kết quả
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(result, f, indent=2, ensure_ascii=False)
+
+            print(f"[DONE] Result saved: {result_path} (time: {result['processing_time']:.2f}s)")
+
+            # Di chuyển files
+            self.move_processed_files(pair_id)
             self.processed_pairs.add(pair_id)
+
+        except Exception as e:
+            print(f"[ERROR] Failed to process pair {pair_id}: {e}")
+        
+        finally:
             self.processing_pairs.discard(pair_id)
-            return
-
-        print(f"[PROCESSING] Starting inference for pair: {pair_id}")
-        start_time = time.time()
-
-        landmarks = np.load(landmark_path)
-
-        result = self.run_inference(self.data_dir, video_path)
-
-        result.update({
-            "processing_time": time.time() - start_time,
-            "timestamp": time.time(),
-            "video_tensor_file": str(video_path.name),
-            "landmark_file": str(landmark_path.name),
-            "landmark_shape": list(landmarks.shape)
-        })
-
-        with open(result_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-
-        print(f"[DONE] Result saved: {result_path}")
-        print(f"[DONE] Processing time: {result['processing_time']:.2f}s")
-
-        # Di chuyển các file đã xử lý vào thư mục history
-        self.move_processed_files(pair_id)
-
-        self.processed_pairs.add(pair_id)
-        self.processing_pairs.discard(pair_id)
+            self.inference_lock = False
     
     def run_inference(self, data_path, video_path):
         """
@@ -352,15 +336,17 @@ class FileHandler(FileSystemEventHandler):
         file_path = Path(event.src_path)
         
         # Kiểm tra extension
-        if (self.file_type == 'video' and file_path.suffix == '.avi') or \
-           (self.file_type == 'landmark' and file_path.suffix == '.npy'):
+        if not ((self.file_type == 'video' and file_path.suffix == '.avi') or \
+                (self.file_type == 'landmark' and file_path.suffix == '.npy')):
+            return
             
-            print(f"[EVENT] New {self.file_type} file: {file_path.name}")
-            
-            # Đợi file được ghi hoàn toàn
-            time.sleep(0.5)
-            
-            # Kiểm tra file có readable không
+        print(f"[EVENT] New {self.file_type} file: {file_path.name}")
+        
+        # Sử dụng retry pattern thay vì sleep cố định
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
             try:
                 if self.file_type == 'video':
                     # Kiểm tra video có mở được không
@@ -369,20 +355,21 @@ class FileHandler(FileSystemEventHandler):
                     if cap.isOpened():
                         cap.release()
                         self.watcher.generate_rgb_cache(file_path)
-                        # self.watcher.on_file_created(self.file_type)
-                    else:
-                        print(f"[WARNING] Cannot open video file: {file_path}")
+                        break
+                    cap.release()
                         
                 elif self.file_type == 'landmark':
                     # Kiểm tra npy file có load được không
                     np.load(str(file_path))
-                    # self.watcher.on_file_created(self.file_type)
                     pair_id = file_path.stem
                     self.watcher.process_pair(pair_id)
+                    break
                     
             except Exception as e:
-                print(f"[WARNING] File not ready yet: {file_path} - {e}")
-                # Có thể retry sau
+                if attempt == max_retries - 1:
+                    print(f"[ERROR] Failed to process file after {max_retries} attempts: {file_path} - {e}")
+                else:
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
 
 def start_inference_watcher(data_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/data", 
                            result_dir="/work/huong.nguyenthi2/Vietnam_Signlanguage_FE/Source/results",
